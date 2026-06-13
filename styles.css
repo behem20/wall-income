@@ -1,12 +1,19 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 html, body {
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
+  overflow: hidden;
   background: #111;
-  color: #fff;
-  font-family: Arial, sans-serif;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
+
 #game-container {
   width: 100%;
   height: 100%;
@@ -14,8 +21,11 @@ html, body {
   justify-content: center;
   align-items: center;
 }
+
 canvas {
-  max-width: 100%;
-  max-height: 100%;
   display: block;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  image-rendering: pixelated;
 }

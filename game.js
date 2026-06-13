@@ -637,6 +637,15 @@ const config = {
     width: 760, height: 870,
     backgroundColor: '#ccdae8',
     parent: 'game-container',
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+        width: 760,
+        height: 870,
+    },
+    input: {
+        activePointers: 3,
+    },
     scene: [MainScene],
     physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
 };
