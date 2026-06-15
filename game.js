@@ -1,54 +1,249 @@
 class MainScene extends Phaser.Scene {
     constructor() { super('MainScene'); }
 
-    create() {
-        this.fieldSize    = 640;
-        this.fieldOffsetX = 60;
-        this.fieldOffsetY = 55;
-        this.fieldCX = this.fieldOffsetX + this.fieldSize / 2; // 380
-        this.fieldCY = this.fieldOffsetY + this.fieldSize / 2; // 375
-        this.slotY = 748;
-        this.btnY  = 829;
+    init(data) {
+        this.infiniteMode = !!(data && data.mode === 'infinite');
+        this.customWalls = (data && data.customWalls) || null;
+        this.testMode = !!(data && data.testMode);
+        this.testLevelNum = (data && data.levelNum) || null;
+        const resumeKey = this.infiniteMode ? 'bumper_save_infinite' : 'bumper_save_normal';
+        try {
+            const raw = this.testMode ? null : localStorage.getItem(resumeKey);
+            this.resumeData = raw ? JSON.parse(raw) : null;
+        } catch (e) { this.resumeData = null; }
+    }
 
-        this.targetMoney = 2000000; this.money = 0; this.incomeBase = 5;
-        this.placedWalls = 0; this.ballCost = 100; this.wallPackCost = 60;
-        this.incomeCost = 80; this.gameWon = false;
+    saveProgress() {
+        if (this.testMode) return;
+        const walls = [];
+        this.wallsGroup.children.iterate(w => {
+            if (w) walls.push({ x: w.x, y: w.y, type: w.wallType, incomeValue: w.incomeValue, specialType: w.specialType || null });
+        });
+        const state = {
+            mode: this.infiniteMode ? 'infinite' : 'normal',
+            level: this.registry.get('level') || 1,
+            money: Math.round(this.money),
+            totalEarned: Math.round(this.totalEarned),
+            ballCount: this.ballsGroup.children.size,
+            wallHand: this.wallHand.map(i => i ? { type: i.type, incomeValue: i.incomeValue, bonus: i.bonus || false } : null),
+            placedWalls: walls,
+            buttonLevels: { ball: this.buttonBall.level || 0, wallPack: this.buttonWallPack.level || 0, income: this.buttonIncome.level || 0 },
+            costs: { ball: this.ballCost, wallPack: this.wallPackCost, income: this.incomeCost }
+        };
+        const key = this.infiniteMode ? 'bumper_save_infinite' : 'bumper_save_normal';
+        try { localStorage.setItem(key, JSON.stringify(state)); } catch (e) { }
+    }
+
+    _applyResumeData(d) {
+        if (!d) return;
+        this.money = d.money || 0;
+        this.totalEarned = d.totalEarned || 0;
+        if (d.costs) { this.ballCost = d.costs.ball; this.wallPackCost = d.costs.wallPack; this.incomeCost = d.costs.income; }
+        if (d.buttonLevels) { this.buttonBall.level = d.buttonLevels.ball; this.buttonWallPack.level = d.buttonLevels.wallPack; this.buttonIncome.level = d.buttonLevels.income; }
+        if (d.wallHand) this.wallHand = d.wallHand;
+        // Safely destroy existing balls (copy array first)
+        this.ballsGroup.getChildren().slice().forEach(b => { if (b && b.active) b.destroy(); });
+        const bCount = d.ballCount || 1;
+        for (let i = 0; i < bCount; i++) this.createBall();
+        // Destroy initial hand walls placed by create(), then restore saved ones
+        this.wallsGroup.getChildren().slice().forEach(w => {
+            if (w && w.active) {
+                if (w._fillGfx && w._fillGfx.active) w._fillGfx.destroy();
+                if (w._outlineGfx && w._outlineGfx.active) w._outlineGfx.destroy();
+                if (w.valueText && w.valueText.active) w.valueText.destroy();
+                w.destroy();
+            }
+        });
+        this.placedWalls = 0;
+        if (d.placedWalls) {
+            d.placedWalls.forEach(pw => {
+                const { w, h } = this.getWallDims(pw.type);
+                const wall = this.createWall(pw.x, pw.y, w, h, pw.type, pw.incomeValue);
+                if (pw.specialType) this._applySpecialWallStyle(wall, pw.specialType);
+            });
+            this.placedWalls = d.placedWalls.length;
+        }
+        this.updateSlotsUI(); this.updateUI();
+    }
+
+    create() {
+        this.BALL_R = 18;
+        this.fieldSize = 392;
+        this.fieldOffsetX = 184;
+        this.fieldOffsetY = 102;
+        this.fieldCX = 380;
+        this.fieldCY = 298;
+        this.slotY = 605;
+        this.btnY = 790;
+
+        this.targetMoney = 2000; this.money = 0; this.totalEarned = 0; this.incomeBase = 1;
+        this.placedWalls = 0; this.ballCost = 20; this.wallPackCost = 20;
+        this.incomeCost = 50; this.gameWon = false;
         this.draggingNewWall = false; this.draggingSlotIndex = -1;
         this.draggingWallType = null; this.draggingIncomeValue = 0;
         this.muted = false; this._audioCtx = null; this._lastHitSound = 0;
         this._musicStarted = false; this._musicGain = null; this._musicTimeout = null;
+        this._physicsSpeedMult = 1;
+        this._incomeWindow = [];
 
-        this.wallHand = [];
-        const types = ['horizontal', 'vertical', 'block'];
-        for (let i = 0; i < 3; i++)
-            this.wallHand.push({ type: Phaser.Math.RND.pick(types), incomeValue: this.incomeBase });
+        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight'];
+        this.wallHand = [
+            { type: Phaser.Math.RND.pick(types), incomeValue: Phaser.Math.Between(1, 3) },
+            { type: Phaser.Math.RND.pick(types), incomeValue: Phaser.Math.Between(1, 3) },
+            { type: Phaser.Math.RND.pick(types), incomeValue: Phaser.Math.Between(1, 3) }
+        ];
 
-        // top bar bg
-        this.add.rectangle(380, 26, 760, 52, 0xd5e5ef).setStrokeStyle(1, 0xaabbcc);
-        // field bg
-        this.add.rectangle(this.fieldCX, this.fieldCY, this.fieldSize, this.fieldSize, 0xeaa2ff)
-            .setStrokeStyle(4, 0x5577cc);
+        // field bg — checkerboard pattern
+        const _fieldGfx = this.add.graphics();
+        const _cs = 28; // 392 / 28 = 14 cells
+        for (let r = 0; r < 14; r++) {
+            for (let c = 0; c < 14; c++) {
+                // _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0x1835ed : 0xB9DEFF, 1);
+                _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0x333333 : 0x000000, 1);
+                _fieldGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
+            }
+        }
+        _fieldGfx.lineStyle(4, 0x8855dd, 1);//0x8855dd
+        _fieldGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
 
         this._genCheckerTexture();
         this.physics.world.setBounds(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         this.wallsGroup = this.physics.add.staticGroup();
         this.ballsGroup = this.physics.add.group({ runChildUpdate: true });
-        this._trailGraphics = this.add.graphics().setDepth(1);
+        this.physics.add.collider(this.ballsGroup, this.ballsGroup, (b1, b2) => {
+            [b1, b2].forEach(b => {
+                const vel = b.body.velocity;
+                const spd = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+                const ts = (this._physicsSpeedMult || 1) * (b._slowUntil && this.time.now < b._slowUntil ? 0.3 : 1);
+                if (spd > 0) b.body.setVelocity(vel.x / spd * b.currentSpeed * ts, vel.y / spd * b.currentSpeed * ts);
+            });
+            const now = this.time.now;
+            if (!b1._lastBallSquish || now - b1._lastBallSquish > 120) { b1._lastBallSquish = now; this._squishBall(b1, 0.65, 1.35); }
+            if (!b2._lastBallSquish || now - b2._lastBallSquish > 120) { b2._lastBallSquish = now; this._squishBall(b2, 1.35, 0.65); }
+        });
+        this.zones = [];
+        this.time.addEvent({ delay: 1000, loop: true, callback: () => this._updateZones() });
+        this._ballOverlayGfx = this.add.graphics().setDepth(3);
+        this._genParticleTexture();
+        this._genWallDustTexture();
+        this._genStarTexture();
+        this._genLuzTexture();
 
         this.createBall();
         this.createUI();
         this.setupInput();
         this.updateUI();
         this.input.once('pointerdown', () => this.startMusic());
+        // Place any editor-defined custom walls
+        if (this.customWalls && this.customWalls.length) {
+            const D = this.BALL_R * 2;
+            this.customWalls.forEach(cw => {
+                if (cw.specialType === 'zone') {
+                    this._createZone(cw.x, cw.y, D, D);
+                } else {
+                    const wall = this.createWall(cw.x, cw.y, D, D, 'block', 0);
+                    wall.incomeValue = 0;
+                    wall.isEditorWall = true;
+                    if (cw.specialType) this._applySpecialWallStyle(wall, cw.specialType, cw.color, cw.damage);
+                    else if (wall.valueText) wall.valueText.setText('');
+                }
+            });
+        }
+        if (this.zones && this.zones.length) this._scheduleZoneRelocation();
+        // Restore saved progress if resuming
+        if (this.resumeData) this._applyResumeData(this.resumeData);
+        // Auto-save and stop music on scene shutdown
+        this.events.once('shutdown', () => { try { if (!this.gameWon) this.saveProgress(); this.stopMusic(); } catch (e) { } });
     }
 
+    // _genCheckerTexture() {
+    //     const g = this.make.graphics({ add: false });
+    //     g.fillStyle(0x180800); g.fillRect(0, 0, 24, 24);
+    //     g.fillStyle(0x3c1e08); g.fillRect(1, 1, 22, 22);
+    //     // vivid amber facet bands
+    //     [[1,1,22,7,0x9a5020],[1,8,22,6,0x7a3c14],[1,14,22,5,0x5a2c10],[1,19,22,4,0x3c1e08]]
+    //         .forEach(([x,y,w,h,c]) => { g.fillStyle(c); g.fillRect(x,y,w,h); });
+    //     // top-left bevel — vivid orange highlight
+    //     g.fillStyle(0xff8833); g.fillRect(1, 1, 22, 1); g.fillRect(1, 1, 1, 22);
+    //     // secondary highlight line
+    //     g.fillStyle(0xffcc66, 0.35); g.fillRect(2, 2, 20, 1);
+    //     // bottom-right shadow
+    //     g.fillStyle(0x080302); g.fillRect(1, 22, 22, 1); g.fillRect(22, 1, 1, 22);
+    //     // horizontal facet line
+    //     g.fillStyle(0x2c1006, 0.7); g.fillRect(1, 9, 22, 1);
+    //     // corner nodes: dark ring + bright gold center
+    //     [[3,3],[20,3],[3,20],[20,20]].forEach(([rx,ry]) => { g.fillStyle(0x8a3812); g.fillRect(rx-1,ry-1,3,3); g.fillStyle(0xffcc44); g.fillRect(rx,ry,1,1); });
+    //     // center diamond cross
+    //     g.fillStyle(0x2a1006); g.fillRect(10,11,4,2); g.fillRect(11,10,2,4);
+    //     g.fillStyle(0xff9944); g.fillRect(11,11,2,2);
+    //     g.generateTexture('checker', 24, 24);
+    //     g.destroy();
+    // }
     _genCheckerTexture() {
         const g = this.make.graphics({ add: false });
-        g.fillStyle(0xffcc00); g.fillRect(0, 0, 24, 24);
-        g.fillStyle(0xff8800); g.fillRect(0, 0, 12, 12);
-        g.fillStyle(0xff8800); g.fillRect(12, 12, 12, 12);
-        g.lineStyle(1, 0xcc5500, 0.45); g.strokeRect(0.5, 0.5, 23, 23);
+        g.fillStyle(0x180800); g.fillRect(0, 0, 24, 24);
+        g.fillStyle(0x3c1e08); g.fillRect(1, 1, 22, 22);
+        // vivid amber facet bands
+        [[1, 1, 22, 7, 0xfaf000], [1, 8, 22, 6, 0xecbe08], [1, 14, 22, 5, 0xfaf000], [1, 19, 22, 4, 0xecbe08]]
+            .forEach(([x, y, w, h, c]) => { g.fillStyle(c); g.fillRect(x, y, w, h); });
+        // top-left bevel — vivid orange highlight
+        g.fillStyle(0xffffff); g.fillRect(1, 1, 22, 1); g.fillRect(1, 1, 1, 22);
+        // secondary highlight line
+        g.fillStyle(0xffcc66, 0.35); g.fillRect(2, 2, 20, 1);
+        // bottom-right shadow
+        g.fillStyle(0x080302); g.fillRect(1, 22, 22, 1); g.fillRect(22, 1, 1, 22);
+        // horizontal facet line
+        g.fillStyle(0x2c1006, 0.7); g.fillRect(1, 9, 22, 1);
+        // corner nodes: dark ring + bright gold center
+        [[3, 3], [20, 3], [3, 20], [20, 20]].forEach(([rx, ry]) => { g.fillStyle(0x8a3812); g.fillRect(rx - 1, ry - 1, 3, 3); g.fillStyle(0xffcc44); g.fillRect(rx, ry, 1, 1); });
+        // center diamond cross
+        g.fillStyle(0x2a1006); g.fillRect(10, 11, 4, 2); g.fillRect(11, 10, 2, 4);
+        g.fillStyle(0xff9944); g.fillRect(11, 11, 2, 2);
         g.generateTexture('checker', 24, 24);
+        g.destroy();
+    }
+
+    _genParticleTexture() {
+        const g = this.make.graphics({ add: false });
+        g.fillStyle(0xffffff, 1);
+        g.fillCircle(24, 24, 24);
+        g.generateTexture('particle', 48, 48);
+        g.destroy();
+    }
+
+    _genWallDustTexture() {
+        const g = this.make.graphics({ add: false });
+        g.fillStyle(0xffffff, 1);
+        g.fillCircle(24, 24, 24);
+        g.generateTexture('wallDust', 48, 48);
+        g.destroy();
+    }
+
+    _genStarTexture() {
+        if (this.textures.exists('star')) return;
+        const sz = 16, c = sz / 2;
+        const g = this.make.graphics({ add: false });
+        g.fillStyle(0xffffff, 1);
+        const pts = [];
+        for (let i = 0; i < 8; i++) {
+            const ang = (i / 8) * Math.PI * 2 - Math.PI / 2;
+            const r = (i % 2 === 0) ? c - 1 : c * 0.28;
+            pts.push({ x: c + Math.cos(ang) * r, y: c + Math.sin(ang) * r });
+        }
+        g.fillPoints(pts, true, true);
+        g.generateTexture('star', sz, sz);
+        g.destroy();
+    }
+
+    _genLuzTexture() {
+        if (this.textures.exists('luz')) return;
+        const sz = 32, c = sz / 2;
+        const g = this.make.graphics({ add: false });
+        [[c, 0.05], [c * 0.75, 0.12], [c * 0.55, 0.22], [c * 0.35, 0.45], [c * 0.18, 0.8], [c * 0.07, 1]].forEach(([r, a]) => {
+            g.fillStyle(0xffffff, a);
+            g.fillCircle(c, c, r);
+        });
+        g.generateTexture('luz', sz, sz);
         g.destroy();
     }
 
@@ -67,14 +262,30 @@ class MainScene extends Phaser.Scene {
             if (ctx.state === 'suspended') ctx.resume();
             const t = ctx.currentTime;
             switch (type) {
-                case 'hover':   { const o=ctx.createOscillator(),g=ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type='sine'; o.frequency.value=1000; g.gain.setValueAtTime(0.04,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.04); o.start(t); o.stop(t+0.04); break; }
-                case 'hit':     { const o=ctx.createOscillator(),g=ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type='sine'; o.frequency.setValueAtTime(240,t); o.frequency.exponentialRampToValueAtTime(100,t+0.07); g.gain.setValueAtTime(0.13,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.09); o.start(t); o.stop(t+0.09); break; }
-                case 'wallhit': { [880,1320,1760].forEach((f,i)=>{ const o=ctx.createOscillator(),g=ctx.createGain(),dt=i*0.038; o.connect(g); g.connect(ctx.destination); o.type='sine'; o.frequency.setValueAtTime(f,t+dt); o.frequency.exponentialRampToValueAtTime(f*0.6,t+dt+0.18); g.gain.setValueAtTime(0.10,t+dt); g.gain.exponentialRampToValueAtTime(0.001,t+dt+0.20); o.start(t+dt); o.stop(t+dt+0.21); }); break; }
-                case 'merge':   { [280,420,600,840].forEach((f,i)=>{ const o=ctx.createOscillator(),g=ctx.createGain(),dt=i*0.065; o.connect(g); g.connect(ctx.destination); o.type='sine'; o.frequency.value=f; g.gain.setValueAtTime(0,t+dt); g.gain.linearRampToValueAtTime(0.13,t+dt+0.02); g.gain.exponentialRampToValueAtTime(0.001,t+dt+0.15); o.start(t+dt); o.stop(t+dt+0.15); }); break; }
-                case 'buy':     { [350,500,700].forEach((f,i)=>{ const o=ctx.createOscillator(),g=ctx.createGain(),dt=i*0.055; o.connect(g); g.connect(ctx.destination); o.type='triangle'; o.frequency.value=f; g.gain.setValueAtTime(0.11,t+dt); g.gain.exponentialRampToValueAtTime(0.001,t+dt+0.13); o.start(t+dt); o.stop(t+dt+0.13); }); break; }
-                case 'place':   { const o=ctx.createOscillator(),g=ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type='sine'; o.frequency.value=440; g.gain.setValueAtTime(0.09,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.09); o.start(t); o.stop(t+0.09); break; }
-                case 'return':  { const o=ctx.createOscillator(),g=ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type='sine'; o.frequency.setValueAtTime(520,t); o.frequency.exponentialRampToValueAtTime(280,t+0.13); g.gain.setValueAtTime(0.1,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.15); o.start(t); o.stop(t+0.15); break; }
-                case 'error':   { const o=ctx.createOscillator(),g=ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type='sawtooth'; o.frequency.value=140; g.gain.setValueAtTime(0.09,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.2); o.start(t); o.stop(t+0.2); break; }
+                case 'hover': { const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = 'sine'; o.frequency.value = 1000; g.gain.setValueAtTime(0.04, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.04); o.start(t); o.stop(t + 0.04); break; }
+                case 'hit': { const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = 'sine'; o.frequency.setValueAtTime(240, t); o.frequency.exponentialRampToValueAtTime(100, t + 0.07); g.gain.setValueAtTime(0.13, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09); o.start(t); o.stop(t + 0.09); break; }
+                case 'wallhit': { [880, 1320, 1760].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(), dt = i * 0.038; o.connect(g); g.connect(ctx.destination); o.type = 'sine'; o.frequency.setValueAtTime(f, t + dt); o.frequency.exponentialRampToValueAtTime(f * 0.6, t + dt + 0.18); g.gain.setValueAtTime(0.10, t + dt); g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.20); o.start(t + dt); o.stop(t + dt + 0.21); }); break; }
+                case 'merge': { [280, 420, 600, 840].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(), dt = i * 0.065; o.connect(g); g.connect(ctx.destination); o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(0, t + dt); g.gain.linearRampToValueAtTime(0.13, t + dt + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.15); o.start(t + dt); o.stop(t + dt + 0.15); }); break; }
+                case 'buy': { [350, 500, 700].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(), dt = i * 0.055; o.connect(g); g.connect(ctx.destination); o.type = 'triangle'; o.frequency.value = f; g.gain.setValueAtTime(0.11, t + dt); g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.13); o.start(t + dt); o.stop(t + dt + 0.13); }); break; }
+                case 'place': { const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = 'sine'; o.frequency.value = 440; g.gain.setValueAtTime(0.09, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09); o.start(t); o.stop(t + 0.09); break; }
+                case 'return': { const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = 'sine'; o.frequency.setValueAtTime(520, t); o.frequency.exponentialRampToValueAtTime(280, t + 0.13); g.gain.setValueAtTime(0.1, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15); o.start(t); o.stop(t + 0.15); break; }
+                case 'error': { const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = 'sawtooth'; o.frequency.value = 140; g.gain.setValueAtTime(0.09, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2); o.start(t); o.stop(t + 0.2); break; }
+                case 'bonus': { [520, 780, 1100, 1560, 2100].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(), dt = i * 0.052; o.connect(g); g.connect(ctx.destination); o.type = i < 3 ? 'sine' : 'triangle'; o.frequency.setValueAtTime(f, t + dt); o.frequency.exponentialRampToValueAtTime(f * 1.08, t + dt + 0.14); g.gain.setValueAtTime(0, t + dt); g.gain.linearRampToValueAtTime(0.1, t + dt + 0.018); g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.2); o.start(t + dt); o.stop(t + dt + 0.21); }); break; }
+                case 'win': {
+                    const fanfare = [523, 659, 784, 659, 784, 1047, 1319, 1568, 2093];
+                    fanfare.forEach((f, i) => {
+                        const o = ctx.createOscillator(), g = ctx.createGain(), dt = i * 0.11;
+                        o.connect(g); g.connect(ctx.destination);
+                        o.type = i % 2 === 0 ? 'sine' : 'triangle';
+                        o.frequency.setValueAtTime(f, t + dt);
+                        o.frequency.exponentialRampToValueAtTime(f * 1.04, t + dt + 0.18);
+                        g.gain.setValueAtTime(0, t + dt);
+                        g.gain.linearRampToValueAtTime(0.14, t + dt + 0.025);
+                        g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.38);
+                        o.start(t + dt); o.stop(t + dt + 0.4);
+                    });
+                    break;
+                }
             }
         } catch (e) { }
     }
@@ -110,35 +321,35 @@ class MainScene extends Phaser.Scene {
         if (!this._musicStarted || !this._audioCtx) return;
         const ctx = this._audioCtx, b = this._musicBeat, t = this._nextMusicT, mg = this._musicGain;
         const n = (f, sb, db, tp, v) => this._oscNote(ctx, mg, f, t + sb * b, db * b, tp || 'triangle', v || 0.26);
-        n(659.25,0,1.0); n(783.99,1,0.5); n(880.00,1.5,0.5); n(783.99,2,0.85); n(659.25,3,0.9);
-        n(523.25,4,1.8); n(659.25,6,0.8); n(587.33,7,0.9);
-        n(523.25,8,0.8); n(440.00,9,0.85); n(392.00,10,0.8); n(440.00,11,0.9);
-        n(392.00,12,1.5); n(329.63,13.5,0.5); n(392.00,14,0.85); n(329.63,15,0.9);
-        [0,2].forEach(sb=>n(130.81,sb,1.85,'sine',0.36));
-        [4,6].forEach(sb=>n(110.00,sb,1.85,'sine',0.36));
-        [8,10].forEach(sb=>n(174.61,sb,1.85,'sine',0.36));
-        [12,14].forEach(sb=>n(196.00,sb,1.85,'sine',0.36));
-        [[[130.81,164.81,196.00],0],[[110.00,130.81,164.81],4],
-         [[174.61,220.00,261.63],8],[[196.00,246.94,293.66],12]
-        ].forEach(([fs,sb])=>fs.forEach(f=>n(f,sb,3.85,'sine',0.065)));
-        for (let bar=0;bar<4;bar++) [0,2].forEach(beat=>{
-            const kt=t+(bar*4+beat)*b, kv=beat===0?0.45:0.28;
-            const o=ctx.createOscillator(),g=ctx.createGain(); o.connect(g); g.connect(mg); o.type='sine';
-            o.frequency.setValueAtTime(155,kt); o.frequency.exponentialRampToValueAtTime(40,kt+0.13);
-            g.gain.setValueAtTime(kv,kt); g.gain.exponentialRampToValueAtTime(0.001,kt+0.15);
-            o.start(kt); o.stop(kt+0.16);
+        n(659.25, 0, 1.0); n(783.99, 1, 0.5); n(880.00, 1.5, 0.5); n(783.99, 2, 0.85); n(659.25, 3, 0.9);
+        n(523.25, 4, 1.8); n(659.25, 6, 0.8); n(587.33, 7, 0.9);
+        n(523.25, 8, 0.8); n(440.00, 9, 0.85); n(392.00, 10, 0.8); n(440.00, 11, 0.9);
+        n(392.00, 12, 1.5); n(329.63, 13.5, 0.5); n(392.00, 14, 0.85); n(329.63, 15, 0.9);
+        [0, 2].forEach(sb => n(130.81, sb, 1.85, 'sine', 0.36));
+        [4, 6].forEach(sb => n(110.00, sb, 1.85, 'sine', 0.36));
+        [8, 10].forEach(sb => n(174.61, sb, 1.85, 'sine', 0.36));
+        [12, 14].forEach(sb => n(196.00, sb, 1.85, 'sine', 0.36));
+        [[[130.81, 164.81, 196.00], 0], [[110.00, 130.81, 164.81], 4],
+        [[174.61, 220.00, 261.63], 8], [[196.00, 246.94, 293.66], 12]
+        ].forEach(([fs, sb]) => fs.forEach(f => n(f, sb, 3.85, 'sine', 0.065)));
+        for (let bar = 0; bar < 4; bar++) [0, 2].forEach(beat => {
+            const kt = t + (bar * 4 + beat) * b, kv = beat === 0 ? 0.45 : 0.28;
+            const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(mg); o.type = 'sine';
+            o.frequency.setValueAtTime(155, kt); o.frequency.exponentialRampToValueAtTime(40, kt + 0.13);
+            g.gain.setValueAtTime(kv, kt); g.gain.exponentialRampToValueAtTime(0.001, kt + 0.15);
+            o.start(kt); o.stop(kt + 0.16);
         });
-        for (let i=0;i<16;i++){
-            const ht=t+i*b;
-            const o=ctx.createOscillator(),g=ctx.createGain(); o.connect(g); g.connect(mg); o.type='square'; o.frequency.value=7800;
-            g.gain.setValueAtTime(0.030,ht); g.gain.exponentialRampToValueAtTime(0.001,ht+0.05); o.start(ht); o.stop(ht+0.055);
-            const ot=ht+b*0.5;
-            const o2=ctx.createOscillator(),g2=ctx.createGain(); o2.connect(g2); g2.connect(mg); o2.type='square'; o2.frequency.value=7200;
-            g2.gain.setValueAtTime(0.014,ot); g2.gain.exponentialRampToValueAtTime(0.001,ot+0.04); o2.start(ot); o2.stop(ot+0.044);
+        for (let i = 0; i < 16; i++) {
+            const ht = t + i * b;
+            const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(mg); o.type = 'square'; o.frequency.value = 7800;
+            g.gain.setValueAtTime(0.030, ht); g.gain.exponentialRampToValueAtTime(0.001, ht + 0.05); o.start(ht); o.stop(ht + 0.055);
+            const ot = ht + b * 0.5;
+            const o2 = ctx.createOscillator(), g2 = ctx.createGain(); o2.connect(g2); g2.connect(mg); o2.type = 'square'; o2.frequency.value = 7200;
+            g2.gain.setValueAtTime(0.014, ot); g2.gain.exponentialRampToValueAtTime(0.001, ot + 0.04); o2.start(ot); o2.stop(ot + 0.044);
         }
-        const loopDur = 16*b;
+        const loopDur = 16 * b;
         this._nextMusicT = t + loopDur;
-        this._musicTimeout = window.setTimeout(()=>this._loopMusic(), Math.max(100,(this._nextMusicT-ctx.currentTime-2*b)*1000));
+        this._musicTimeout = window.setTimeout(() => this._loopMusic(), Math.max(100, (this._nextMusicT - ctx.currentTime - 2 * b) * 1000));
     }
 
     toggleMute() {
@@ -149,22 +360,39 @@ class MainScene extends Phaser.Scene {
         if (!this.muted && !this._musicStarted) this.startMusic();
     }
 
+    stopMusic() {
+        this._musicStarted = false;
+        if (this._musicTimeout) { window.clearTimeout(this._musicTimeout); this._musicTimeout = null; }
+        if (this._musicGain) { try { this._musicGain.disconnect(); } catch (e) { } this._musicGain = null; }
+        if (this._audioCtx) { try { this._audioCtx.close(); } catch (e) { } this._audioCtx = null; }
+    }
+
     // ──── Ball ────
 
     createBall() {
-        const ox=this.fieldOffsetX, oy=this.fieldOffsetY, fs=this.fieldSize;
+        const R = Math.round(this.BALL_R * 0.9);
+        const ox = this.fieldOffsetX, oy = this.fieldOffsetY, fs = this.fieldSize;
         const ball = this.add.circle(
-            Phaser.Math.Between(ox+100, ox+fs-100),
-            Phaser.Math.Between(oy+100, oy+fs-100),
-            18, 0xffffff
-        ).setDepth(2);
+            Phaser.Math.Between(ox + 80, ox + fs - 80),
+            Phaser.Math.Between(oy + 80, oy + fs - 80),
+            R, 0xf01cff
+        ).setStrokeStyle(1, 0xf8ae0f).setDepth(2);
         this.physics.add.existing(ball);
-        ball.body.setCircle(18).setBounce(1,1).setAllowGravity(false).setDrag(0);
+        ball.body.setCircle(R).setBounce(1, 1).setAllowGravity(false).setDrag(0);
         ball.bounceSpeed = 400; ball.currentSpeed = 400;
-        ball._trail = [];
+        // ── PARTICLE TRAIL — edit config below ──────────────────
+        ball.trail = this.add.particles(0, 0, 'particle', {
+            lifespan: 380,
+            scale: { start: 0.8, end: 0 },
+            alpha: { start: 0.04, end: 0 },
+            tint: 0xffccff,
+            // blendMode: 1,
+            frequency: -1
+        }).setDepth(1);
+        // ─────────────────────────────────────────────────────────
         const angle = Phaser.Math.DegToRad(Phaser.Math.Between(25, 65));
-        const sx = Phaser.Math.RND.pick([-1,1]), sy = Phaser.Math.RND.pick([-1,1]);
-        ball.body.setVelocity(sx*Math.cos(angle)*400, sy*Math.sin(angle)*400);
+        const sx = Phaser.Math.RND.pick([-1, 1]), sy = Phaser.Math.RND.pick([-1, 1]);
+        ball.body.setVelocity(sx * Math.cos(angle) * 400, sy * Math.sin(angle) * 400);
         this.ballsGroup.add(ball);
     }
 
@@ -182,38 +410,140 @@ class MainScene extends Phaser.Scene {
     createWall(x, y, width, height, wallType, incomeValue) {
         const val = incomeValue !== undefined ? incomeValue : this.incomeBase;
         const wall = this.add.tileSprite(x, y, width, height, 'checker');
-        wall.setOrigin(0.5, 0.5);
+        wall.setOrigin(0.5, 0.5).setAlpha(0.001);
         this.physics.add.existing(wall, true);
         wall.body.setSize(width, height);
         wall.isWall = true; wall.wallType = wallType;
         wall.incomeValue = val; wall.lastHit = 0; wall.lastFloat = 0;
-        wall.setInteractive({ cursor: 'grab' });
-        this.input.setDraggable(wall);
-        wall.valueText = this.add.text(x, y, `$${val}`, {
+        wall.wallTotalEarned = 0; wall._wallIncWin = [];
+        wall.setInteractive({ useHandCursor: true });
+        wall.on('pointerdown', (ptr) => this._pickUpFieldWall(ptr, wall));
+        wall.on('pointerover', () => this._showWallTooltip(wall));
+        wall.on('pointerout', () => this._hideWallTooltip());
+        wall.on('destroy', () => this._hideWallTooltip());
+        wall.valueText = this.add.text(x, y, `${val}$`, {
             fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '22px', fill: '#ffd700',
+            fontSize: '22px', fill: '#ffffff',
             stroke: '#000000', strokeThickness: 5,
             shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true }
         }).setOrigin(0.5).setDepth(3);
+        // rounded-corner mask — T-shapes get two rects; others get one
+        const maskGfx = this.make.graphics({ add: false });
+        const _D = this.BALL_R * 2;
+        const drawMask = (wx, wy) => {
+            maskGfx.clear();
+            maskGfx.fillStyle(0xffffff);
+            const r = 5;
+            if (wallType === 'tDown') {
+                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2, width, _D, r);
+                maskGfx.fillRoundedRect(wx - _D / 2, wy - height / 2 + _D, _D, _D, r);
+            } else if (wallType === 'tUp') {
+                maskGfx.fillRoundedRect(wx - _D / 2, wy - height / 2, _D, _D, r);
+                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2 + _D, width, _D, r);
+            } else if (wallType === 'tLeft') {
+                maskGfx.fillRoundedRect(wx - width / 2, wy - _D / 2, _D, _D, r);
+                maskGfx.fillRoundedRect(wx - width / 2 + _D, wy - height / 2, _D, height, r);
+            } else if (wallType === 'tRight') {
+                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2, _D, height, r);
+                maskGfx.fillRoundedRect(wx - width / 2 + _D, wy - _D / 2, _D, _D, r);
+            } else {
+                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2, width, height, r);
+            }
+        };
+        drawMask(x, y);
+        wall.setMask(maskGfx.createGeometryMask());
+        wall._maskGfx = maskGfx;
+        wall._drawMask = drawMask;
+        wall.on('destroy', () => { if (maskGfx.active) maskGfx.destroy(); });
+
+        // gradient fill — color based on income value, clipped by same mask
+        const fillGfx = this.add.graphics().setDepth(1);
+        const drawFill = (ox, oy) => {
+            fillGfx.clear();
+            const { top, bot } = this._incomeToColors(wall.incomeValue);
+            const fillTop = this._darkenColor(top, 0.32);
+            const fillBot = this._darkenColor(bot, 0.45);
+            fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
+            fillGfx.fillRect(ox - width / 2, oy - height / 2, width, height);
+        };
+        drawFill(x, y);
+        fillGfx.setMask(maskGfx.createGeometryMask());
+        wall._fillGfx = fillGfx;
+        wall._drawFill = drawFill;
+        wall.on('destroy', () => { if (fillGfx.active) fillGfx.destroy(); });
+
+        // white outline overlay — redrawn when wall moves
+        const olGfx = this.add.graphics().setDepth(2.5);
+        const _D2 = this.BALL_R * 2;
+        const drawOutline = (ox, oy, color, alpha) => {
+            const _c = (color !== undefined) ? color : this._incomeToColors(wall.incomeValue).top;
+            const _a = (alpha !== undefined) ? alpha : 0.9;
+            olGfx.clear();
+            olGfx.lineStyle(2, _c, _a);
+            const hw = width / 2, hh = height / 2, D2 = _D2;
+            if (wallType === 'tDown') {
+                olGfx.beginPath();
+                olGfx.moveTo(ox - hw, oy - hh); olGfx.lineTo(ox + hw, oy - hh);
+                olGfx.lineTo(ox + hw, oy - hh + D2); olGfx.lineTo(ox + D2 / 2, oy - hh + D2);
+                olGfx.lineTo(ox + D2 / 2, oy + hh); olGfx.lineTo(ox - D2 / 2, oy + hh);
+                olGfx.lineTo(ox - D2 / 2, oy - hh + D2); olGfx.lineTo(ox - hw, oy - hh + D2);
+                olGfx.closePath(); olGfx.strokePath();
+            } else if (wallType === 'tUp') {
+                olGfx.beginPath();
+                olGfx.moveTo(ox - D2 / 2, oy - hh); olGfx.lineTo(ox + D2 / 2, oy - hh);
+                olGfx.lineTo(ox + D2 / 2, oy - hh + D2); olGfx.lineTo(ox + hw, oy - hh + D2);
+                olGfx.lineTo(ox + hw, oy + hh); olGfx.lineTo(ox - hw, oy + hh);
+                olGfx.lineTo(ox - hw, oy - hh + D2); olGfx.lineTo(ox - D2 / 2, oy - hh + D2);
+                olGfx.closePath(); olGfx.strokePath();
+            } else if (wallType === 'tLeft') {
+                olGfx.beginPath();
+                olGfx.moveTo(ox - hw + D2, oy - hh); olGfx.lineTo(ox + hw, oy - hh);
+                olGfx.lineTo(ox + hw, oy + hh); olGfx.lineTo(ox - hw + D2, oy + hh);
+                olGfx.lineTo(ox - hw + D2, oy + D2 / 2); olGfx.lineTo(ox - hw, oy + D2 / 2);
+                olGfx.lineTo(ox - hw, oy - D2 / 2); olGfx.lineTo(ox - hw + D2, oy - D2 / 2);
+                olGfx.closePath(); olGfx.strokePath();
+            } else if (wallType === 'tRight') {
+                olGfx.beginPath();
+                olGfx.moveTo(ox - hw, oy - hh); olGfx.lineTo(ox - hw + D2, oy - hh);
+                olGfx.lineTo(ox - hw + D2, oy - D2 / 2); olGfx.lineTo(ox + hw, oy - D2 / 2);
+                olGfx.lineTo(ox + hw, oy + D2 / 2); olGfx.lineTo(ox - hw + D2, oy + D2 / 2);
+                olGfx.lineTo(ox - hw + D2, oy + hh); olGfx.lineTo(ox - hw, oy + hh);
+                olGfx.closePath(); olGfx.strokePath();
+            } else {
+                olGfx.strokeRoundedRect(ox - hw, oy - hh, width, height, 5);
+            }
+        };
+        drawOutline(x, y);
+        wall._outlineGfx = olGfx;
+        wall._drawOutline = drawOutline;
+        wall.on('destroy', () => { if (olGfx && olGfx.active) olGfx.destroy(); });
+
         this.wallsGroup.add(wall);
         return wall;
     }
 
     getWallDims(type) {
-        if (type === 'block')    return { w: 75,  h: 75  };
-        if (type === 'vertical') return { w: 60,  h: 180 };
-        return                          { w: 180, h: 60  };
+        const D = this.BALL_R * 2;
+        if (type === 'block') return { w: D, h: D };
+        if (type === 'vertical') return { w: D, h: D * 3 };
+        if (type === 'tDown' || type === 'tUp') return { w: D * 3, h: D * 2 };
+        if (type === 'tLeft' || type === 'tRight') return { w: D * 2, h: D * 3 };
+        return { w: D * 3, h: D };
     }
 
     // ──── Helpers ────
 
-    showFloatingText(x, y, text) {
+    showFloatingText(x, y, text, value) {
+        const v = value || 0;
+        const color = v < 0 ? '#ff2200' : v >= 300 ? '#ff3311' : v >= 120 ? '#ff7722' : v >= 50 ? '#ffcc22' : v >= 20 ? '#aaff22' : '#04ff26';
         const t = this.add.text(x, y, text, {
-            fontSize: '26px', fill: '#ffff00', fontStyle: 'bold',
-            stroke: '#aa5500', strokeThickness: 5
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '22px', fill: color,
+            stroke: '#000000', strokeThickness: 5,
+            shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true }
         }).setOrigin(0.5).setDepth(20);
         this.tweens.add({
-            targets: t, y: y - 55, duration: 850, ease: 'Power1',
+            targets: t, y: y - 55, scaleX: { from: 0, to: 1 }, duration: 550, ease: 'Power1',
             onComplete: () => {
                 if (t && t.active)
                     this.tweens.add({ targets: t, y: '-=25', alpha: 0, duration: 500, ease: 'Power2', onComplete: () => t.destroy() });
@@ -228,22 +558,56 @@ class MainScene extends Phaser.Scene {
         this.tweens.add({ targets: this.errorText, alpha: 0, delay: 900, duration: 350 });
     }
 
+    _getNewWallRects(cx, cy, w, h, type) {
+        const D = this.BALL_R * 2;
+        if (type === 'tDown') return [{ x: cx, y: cy - D / 2, hw: w / 2, hh: D / 2 }, { x: cx, y: cy + D / 2, hw: D / 2, hh: D / 2 }];
+        if (type === 'tUp') return [{ x: cx, y: cy - D / 2, hw: D / 2, hh: D / 2 }, { x: cx, y: cy + D / 2, hw: w / 2, hh: D / 2 }];
+        if (type === 'tLeft') return [{ x: cx - D / 2, y: cy, hw: D / 2, hh: D / 2 }, { x: cx + D / 2, y: cy, hw: D / 2, hh: h / 2 }];
+        if (type === 'tRight') return [{ x: cx - D / 2, y: cy, hw: D / 2, hh: h / 2 }, { x: cx + D / 2, y: cy, hw: D / 2, hh: D / 2 }];
+        return [{ x: cx, y: cy, hw: w / 2, hh: h / 2 }];
+    }
+
     checkPlacementValid(cx, cy, w, h, type) {
-        let ballTooClose = false;
-        this.ballsGroup.children.iterate(ball => {
-            if (ballTooClose || !ball) return;
-            const bx = Phaser.Math.Clamp(ball.x, cx-w/2, cx+w/2);
-            const by = Phaser.Math.Clamp(ball.y, cy-h/2, cy+h/2);
-            if ((ball.x-bx)**2+(ball.y-by)**2 < 26*26) ballTooClose = true;
-        });
-        if (ballTooClose) return { ok: false, reason: 'Нельзя! Рядом мяч' };
-        let diffBlocked = false, mergeTarget = null;
+        // Priority: what is directly under the cursor point?
+        // Use actual collision rects (not bounding box) so T-wall empty corners don't block.
+        let cursorTarget = null, cursorBlocked = false;
         this.wallsGroup.children.iterate(e => {
             if (!e) return;
-            const ex1=e.x-e.width/2, ex2=e.x+e.width/2, ey1=e.y-e.height/2, ey2=e.y+e.height/2;
-            if ((cx-w/2)<ex2&&(cx+w/2)>ex1&&(cy-h/2)<ey2&&(cy+h/2)>ey1) {
-                if (e.wallType===type && !mergeTarget) mergeTarget=e;
-                else if (e.wallType!==type) diffBlocked=true;
+            const eRects = this._getWallCollisionRects(e);
+            let inside = false;
+            for (const er of eRects) {
+                if (cx > er.x - er.hw && cx < er.x + er.hw &&
+                    cy > er.y - er.hh && cy < er.y + er.hh) { inside = true; break; }
+            }
+            if (inside) {
+                if (e.isEditorWall) cursorBlocked = true;
+                else if (e.wallType === type) cursorTarget = e;
+                else cursorBlocked = true;
+            }
+        });
+        if (cursorBlocked) return { ok: false, reason: 'Нельзя! Мешает другая стена' };
+        if (cursorTarget) return { ok: true, mergeTarget: cursorTarget };
+
+        // Fallback: actual T-shape rect overlap (3px shrink avoids false positives on touching edges)
+        const SHRINK = 3;
+        let diffBlocked = false, mergeTarget = null;
+        const newRects = this._getNewWallRects(cx, cy, w, h, type);
+        this.wallsGroup.children.iterate(e => {
+            if (!e) return;
+            const eRects = this._getWallCollisionRects(e);
+            let overlaps = false;
+            for (const nr of newRects) {
+                for (const er of eRects) {
+                    if ((nr.x - nr.hw + SHRINK) < (er.x + er.hw) && (nr.x + nr.hw - SHRINK) > (er.x - er.hw) &&
+                        (nr.y - nr.hh + SHRINK) < (er.y + er.hh) && (nr.y + nr.hh - SHRINK) > (er.y - er.hh)) {
+                        overlaps = true; break;
+                    }
+                }
+                if (overlaps) break;
+            }
+            if (overlaps) {
+                if (!e.isEditorWall && e.wallType === type && !mergeTarget) mergeTarget = e;
+                else diffBlocked = true;
             }
         });
         if (diffBlocked) return { ok: false, reason: 'Нельзя! Мешает другая стена' };
@@ -253,400 +617,2495 @@ class MainScene extends Phaser.Scene {
     // ──── UI ────
 
     createUI() {
-        // progress bar graphics (drawn each updateUI call)
-        this._progressGfx = this.add.graphics();
+        // ── Top panel (y 0–130): dark navy ──────────────────────────
+        // this.add.rectangle(380, 65, 760, 130, 0x0e1a27);
 
-        // top bar — goal left, money right, mute far right
-        this.goalText   = this.add.text(12,  7, '', { fontSize: '15px', fill: '#334466', fontStyle: 'bold' });
-        this.moneyText  = this.add.text(700, 7, '', { fontSize: '18px', fill: '#aa7700', fontStyle: 'bold' }).setOrigin(1, 0);
-        this.incomeText = this.add.text(380, 44, '', { fontSize: '11px', fill: '#1a6633' }).setOrigin(0.5, 1);
+        // subtle dot grid
+        const dotGfx = this.add.graphics();
+        dotGfx.fillStyle(0xffffff, 0.02);
+        for (let gx = 30; gx < 760; gx += 48)
+            for (let gy = 16; gy < 130; gy += 26)
+                dotGfx.fillCircle(gx, gy, 1.5);
 
-        this.muteBtn = this.add.text(750, 26, '🔊', { fontSize: '20px' })
+        // bottom separator line
+        // this.add.rectangle(380, 129, 760, 2, 0x2d55aa).setAlpha(0.7);
+
+        // ── Left: progress bar first, "ЦЕЛЬ УРОВНЯ" label below ─────
+        this._pbx = 18; this._pby = 8; this._pbw = 360; this._pbh = 38;
+        this._progressGfx = this.add.graphics().setDepth(4);
+        this.barText = this.add.text(
+            this._pbx + this._pbw / 2,
+            this._pby + this._pbh / 2,
+            '0 / 2,000,000',
+            {
+                fontFamily: "'Impact', 'Arial Black', sans-serif",
+                fontSize: '36px', fill: '#18ee50',
+                stroke: '#010e05', strokeThickness: 4
+            }
+        ).setOrigin(0.5, 0.5).setDepth(5);
+        const _lvl = this.registry.get('level') || 1;
+        const _barLabel = this.infiniteMode ? '∞  БЕСКОНЕЧНЫЙ РЕЖИМ' : `ЦЕЛЬ УРОВНЯ ${_lvl}`;
+        this.add.text(this._pbx + this._pbw / 2, this._pby + this._pbh + 5, _barLabel, {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '22px', fill: this.infiniteMode ? '#44aaff' : '#ffffff', stroke: '#010e05', strokeThickness: 3
+        }).setOrigin(0.5, 0);
+
+        // ── Vertical divider ──────────────────────────────────────
+        // const divGfx = this.add.graphics();
+        // divGfx.lineStyle(1, 0x1e3a5c, 0.8);
+        // divGfx.lineBetween(406, 6, 406, 122);
+
+        // ── Right: wallet background panel (same style as progress bar track) ──
+        const walletBgGfx = this.add.graphics().setDepth(4);
+        walletBgGfx.fillStyle(0x070e16, 1);
+        walletBgGfx.fillRoundedRect(415, 8, 330, 36, 6);
+        walletBgGfx.lineStyle(1, 0x1e3d6a, 0.7);
+        walletBgGfx.strokeRoundedRect(415, 8, 330, 36, 6);
+
+        // money number centered in the panel
+        this.moneyText = this.add.text(580, 26, '0$', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '36px', fill: '#18ee50',
+            stroke: '#010e05', strokeThickness: 4
+        }).setOrigin(0.5, 0.5).setDepth(5);
+        this.add.text(580, 50, 'КОШЕЛЁК', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '22px', fill: '#ffffff', stroke: '#010e05', strokeThickness: 3
+        }).setOrigin(0.5, 0);
+
+        // mute button (right side, vertically centered in panel)
+        const _icoX = 584, _valX = 604;
+        this._ballDotGfx = this.add.graphics().setDepth(5);
+        this._ballDotGfx.fillStyle(0xf01cff, 1);
+        this._ballDotGfx.fillCircle(_icoX + 6, 116, 6);
+        this._ballDotGfx.lineStyle(1.5, 0xf8ae0f, 1);
+        this._ballDotGfx.strokeCircle(_icoX + 6, 116, 6);
+        this.ballCountText = this.add.text(_valX, 108, '1 шар', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '16px', fill: '#cce4ff', stroke: '#010e05', strokeThickness: 3
+        }).setOrigin(0, 0).setDepth(5);
+        this.add.text(_icoX, 128, '⚡', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '16px', fill: '#ffe666', stroke: '#010e05', strokeThickness: 3
+        }).setOrigin(0, 0).setDepth(5);
+        this.incomePerSecText = this.add.text(_valX, 128, '0$/сек', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '16px', fill: '#ffe666', stroke: '#010e05', strokeThickness: 3
+        }).setOrigin(0, 0).setDepth(5);
+        this.add.text(_icoX, 148, '◆', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '16px', fill: '#ffdd44', stroke: '#100e00', strokeThickness: 3
+        }).setOrigin(0, 0).setDepth(5);
+        this.passiveIncomeText = this.add.text(_valX, 148, '0$/с', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '16px', fill: '#ffdd44', stroke: '#100e00', strokeThickness: 3
+        }).setOrigin(0, 0).setDepth(5);
+        this.muteBtn = this.add.text(748, 112, '🔊', { fontSize: '22px' })
             .setOrigin(1, 0.5).setInteractive({ useHandCursor: true }).setDepth(10);
         this.muteBtn.on('pointerover', () => this.playSound('hover'));
         this.muteBtn.on('pointerdown', () => this.toggleMute());
+        // Menu button
+        const menuGfx = this.add.graphics().setDepth(10);
+        const drawMenuBtn = (hover) => {
+            menuGfx.clear();
+            menuGfx.fillStyle(hover ? 0x1a2a3a : 0x0d1824, 0.9);
+            menuGfx.fillRoundedRect(695, 72, 55, 26, 6);
+            menuGfx.lineStyle(1.5, hover ? 0x88ccff : 0x336699, 1);
+            menuGfx.strokeRoundedRect(695, 72, 55, 26, 6);
+        };
+        drawMenuBtn(false);
+        this.add.text(722, 85, 'МЕНЮ', { fontFamily: "'Impact'", fontSize: '14px', fill: '#88ccff', stroke: '#000', strokeThickness: 2 })
+            .setOrigin(0.5).setDepth(11);
+        const menuHit = this.add.rectangle(722, 85, 55, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
+        menuHit.on('pointerover', () => { drawMenuBtn(true); this.playSound('hover'); });
+        menuHit.on('pointerout', () => drawMenuBtn(false));
+        menuHit.on('pointerdown', () => {
+            this.saveProgress();
+            this.cameras.main.fade(400, 0, 0, 0);
+            this.time.delayedCall(400, () => this.scene.start('StartScene'));
+        });
 
-        // hand strip (below field)
-        this.add.text(380, 701, 'РУКА', { fontSize: '11px', fill: '#6677aa', fontStyle: 'bold' }).setOrigin(0.5, 1);
-        this.returnZoneBg = this.add.rectangle(380, this.slotY, 640, 88, 0xf0f5ff).setStrokeStyle(1, 0x8899cc);
+        // Back-to-editor button (test mode only)
+        if (this.testMode) {
+            const edBtnGfx = this.add.graphics().setDepth(10);
+            const drawEdBtn = (hov) => {
+                edBtnGfx.clear();
+                edBtnGfx.fillStyle(hov ? 0x0e2a14 : 0x081208, 0.95);
+                edBtnGfx.fillRoundedRect(628, 72, 62, 26, 6);
+                edBtnGfx.lineStyle(1.5, hov ? 0x44ff88 : 0x226633, 1);
+                edBtnGfx.strokeRoundedRect(628, 72, 62, 26, 6);
+            };
+            drawEdBtn(false);
+            this.add.text(659, 85, '← РЕД', { fontFamily: "'Impact'", fontSize: '13px', fill: '#44ff88', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5).setDepth(11);
+            const edBtnHit = this.add.rectangle(659, 85, 62, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
+            edBtnHit.on('pointerover', () => drawEdBtn(true));
+            edBtnHit.on('pointerout', () => drawEdBtn(false));
+            edBtnHit.on('pointerdown', () => this.scene.start('EditorScene', { levelNum: this.testLevelNum }));
+        }
+
+        // ── Hand strip (no label, no wrapper) ────────────────────
+        this.returnZoneBg = this.add.rectangle(380, this.slotY, 740, 160, 0x0e1a27, 0);
 
         this.wallSlots = [];
         this.buildSlotUIs();
 
-        // upgrades strip (bottom)
-        this.add.text(380, 796, 'УЛУЧШЕНИЯ', { fontSize: '11px', fill: '#6677aa', fontStyle: 'bold' }).setOrigin(0.5, 1);
-        this.add.rectangle(380, this.btnY, 640, 62, 0xf0f5ff).setStrokeStyle(1, 0x8899cc);
-
-        const bx = [167, 380, 593];
-        this.buttonBall     = this.createButton(bx[0], this.btnY, '🟠', 'Купить шар',  this.ballCost,     () => this.buyBall());
-        this.buttonWallPack = this.createButton(bx[1], this.btnY, '🧱', 'Стены ×3',    this.wallPackCost,  () => this.buyWallPack());
-        this.buttonIncome   = this.createButton(bx[2], this.btnY, '⚡', 'Прокачать',   this.incomeCost,    () => this.buyIncomeUpgrade());
+        // ── Upgrades strip (no label, no wrapper) ─────────────────
+        this.buttonBall = this.createButton(167, this.btnY, '🟠', '+ 1 шарик', this.ballCost, () => this.buyBall());
+        this.buttonWallPack = this.createButton(380, this.btnY, '🧱', '+ 3 стены', this.wallPackCost, () => this.buyWallPack());
+        this.buttonIncome = this.createButton(593, this.btnY, '⚡', '+ доход стен', this.incomeCost, () => this.buyIncomeUpgrade());
+        this._upgradeBtnCenters = [{ cx: 167, cy: this.btnY }, { cx: 380, cy: this.btnY }, { cx: 593, cy: this.btnY }];
+        this._scheduleUpgradeShimmer();
+        this._scheduleRandomBlock();
 
         this.errorText = this.add.text(this.fieldCX, this.fieldCY, '', {
-            fontSize: '20px', fill: '#cc2222', fontStyle: 'bold', stroke: '#ffffff', strokeThickness: 4
+            fontSize: '20px', fill: '#ff4444', fontStyle: 'bold',
+            stroke: '#000000', strokeThickness: 4
         }).setOrigin(0.5).setDepth(30).setAlpha(0);
+
+        // Wall hover tooltip — right of field
+        const ttGfx = this.add.graphics().setDepth(28);
+        ttGfx.fillStyle(0x060d18, 0.93); ttGfx.fillRoundedRect(0, 0, 165, 62, 8);
+        ttGfx.lineStyle(1.5, 0x44aaff, 0.8); ttGfx.strokeRoundedRect(0, 0, 165, 62, 8);
+        ttGfx.setVisible(false);
+        this._wallTooltipGfx = ttGfx;
+        this._wallTooltipIps = this.add.text(8, 10, '⚡ 0$/сек', {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '17px', fill: '#44ddff', stroke: '#000000', strokeThickness: 3
+        }).setDepth(29).setVisible(false);
+        this._wallTooltipTotal = this.add.text(8, 36, '💰 0$ всего', {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '17px', fill: '#ffdd44', stroke: '#000000', strokeThickness: 3
+        }).setDepth(29).setVisible(false);
+        this._wallTooltipTimer = null;
     }
 
     buildSlotUIs() {
+        const slotX = [167, 380, 593];
         for (let i = 0; i < 3; i++) {
-            const cx = Math.round(this.fieldOffsetX + (i + 0.5) * (this.fieldSize / 3));
-            const cy = this.slotY;
-            const bg  = this.add.rectangle(cx, cy, 200, 80, 0xe0eaff).setStrokeStyle(1, 0x8899cc).setInteractive({ cursor: 'pointer' });
+            const cx = slotX[i], cy = this.slotY;
+            // transparent hit area — large enough for vertical wall (50×150)
+            const bg = this.add.rectangle(cx, cy, 160, 160, 0x000000, 0)
+                .setInteractive({ cursor: 'pointer' });
             const gfx = this.add.graphics().setDepth(2);
+            const valTxt = this.add.text(cx, cy, '', {
+                fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+                fontSize: '22px', fill: '#ffffff',
+                stroke: '#000000', strokeThickness: 5,
+                shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true }
+            }).setOrigin(0.5, 0.5).setDepth(3);
             const idx = i;
             bg.on('pointerdown', ptr => this.startWallDragFromSlot(ptr, idx));
-            bg.on('pointerover',  () => { this.playSound('hover'); if (idx < this.wallHand.length) bg.setStrokeStyle(2, 0x5577ff); });
-            bg.on('pointerout',   () => { if (idx < this.wallHand.length) bg.setStrokeStyle(1, 0x8899cc); });
-            this.wallSlots.push({ bg, gfx, cx, cy });
+            bg.on('pointerover', () => { if (idx < this.wallHand.length) this.playSound('hover'); });
+            this.wallSlots.push({ bg, gfx, valTxt, cx, cy });
         }
         this.updateSlotsUI();
+    }
+
+    _drawTShapeSlot(gfx, cx, cy, type, incomeValue = null) {
+        const D = this.BALL_R * 2;
+        const iv = incomeValue !== null ? incomeValue : 5;
+        const outlineColor = this._incomeToColors(iv).top;
+        if (type === 'tDown') {
+            this._drawSlotWall(gfx, cx - D * 1.5, cy - D, D * 3, D, true, iv);
+            this._drawSlotWall(gfx, cx - D / 2, cy, D, D, true, iv);
+            gfx.lineStyle(2, outlineColor, 0.9);
+            gfx.beginPath();
+            gfx.moveTo(cx - D * 1.5, cy - D); gfx.lineTo(cx + D * 1.5, cy - D);
+            gfx.lineTo(cx + D * 1.5, cy); gfx.lineTo(cx + D / 2, cy);
+            gfx.lineTo(cx + D / 2, cy + D); gfx.lineTo(cx - D / 2, cy + D);
+            gfx.lineTo(cx - D / 2, cy); gfx.lineTo(cx - D * 1.5, cy);
+            gfx.closePath(); gfx.strokePath();
+        } else if (type === 'tUp') {
+            this._drawSlotWall(gfx, cx - D / 2, cy - D, D, D, true, iv);
+            this._drawSlotWall(gfx, cx - D * 1.5, cy, D * 3, D, true, iv);
+            gfx.lineStyle(2, outlineColor, 0.9);
+            gfx.beginPath();
+            gfx.moveTo(cx - D / 2, cy - D); gfx.lineTo(cx + D / 2, cy - D);
+            gfx.lineTo(cx + D / 2, cy); gfx.lineTo(cx + D * 1.5, cy);
+            gfx.lineTo(cx + D * 1.5, cy + D); gfx.lineTo(cx - D * 1.5, cy + D);
+            gfx.lineTo(cx - D * 1.5, cy); gfx.lineTo(cx - D / 2, cy);
+            gfx.closePath(); gfx.strokePath();
+        } else if (type === 'tLeft') {
+            this._drawSlotWall(gfx, cx - D, cy - D / 2, D, D, true, iv);
+            this._drawSlotWall(gfx, cx, cy - D * 1.5, D, D * 3, true, iv);
+            gfx.lineStyle(2, outlineColor, 0.9);
+            gfx.beginPath();
+            gfx.moveTo(cx, cy - D * 1.5); gfx.lineTo(cx + D, cy - D * 1.5);
+            gfx.lineTo(cx + D, cy + D * 1.5); gfx.lineTo(cx, cy + D * 1.5);
+            gfx.lineTo(cx, cy + D / 2); gfx.lineTo(cx - D, cy + D / 2);
+            gfx.lineTo(cx - D, cy - D / 2); gfx.lineTo(cx, cy - D / 2);
+            gfx.closePath(); gfx.strokePath();
+        } else {
+            this._drawSlotWall(gfx, cx - D, cy - D * 1.5, D, D * 3, true, iv);
+            this._drawSlotWall(gfx, cx, cy - D / 2, D, D, true, iv);
+            gfx.lineStyle(2, outlineColor, 0.9);
+            gfx.beginPath();
+            gfx.moveTo(cx - D, cy - D * 1.5); gfx.lineTo(cx, cy - D * 1.5);
+            gfx.lineTo(cx, cy - D / 2); gfx.lineTo(cx + D, cy - D / 2);
+            gfx.lineTo(cx + D, cy + D / 2); gfx.lineTo(cx, cy + D / 2);
+            gfx.lineTo(cx, cy + D * 1.5); gfx.lineTo(cx - D, cy + D * 1.5);
+            gfx.closePath(); gfx.strokePath();
+        }
     }
 
     updateSlotsUI() {
         this.wallSlots.forEach((slot, i) => {
             slot.gfx.clear();
-            if (i < this.wallHand.length) {
+            if (slot.valTxt) slot.valTxt.setText('');
+            if (this.wallHand[i]) {
                 const item = this.wallHand[i];
-                slot.bg.setFillStyle(0xe0eaff).setStrokeStyle(1, 0x8899cc).setAlpha(1).setInteractive({ cursor: 'pointer' });
-                const {w, h} = this.getWallDims(item.type);
-                const scale = Math.min(190/w, 70/h);
-                const dw = w*scale, dh = h*scale;
-                const x0 = slot.cx - dw/2, y0 = slot.cy - dh/2;
-                const cs = 10;
-                for (let c = 0; c*cs < dw; c++) {
-                    for (let r = 0; r*cs < dh; r++) {
-                        slot.gfx.fillStyle((c+r)%2===0 ? 0xffcc00 : 0xff8800, 1);
-                        slot.gfx.fillRect(x0+c*cs, y0+r*cs, Math.min(cs, dw-c*cs), Math.min(cs, dh-r*cs));
-                    }
+                slot.bg.setInteractive({ cursor: 'pointer' });
+                const { w, h } = this.getWallDims(item.type);
+                if (['tDown', 'tUp', 'tLeft', 'tRight'].includes(item.type)) {
+                    this._drawTShapeSlot(slot.gfx, slot.cx, slot.cy, item.type, item.incomeValue);
+                } else {
+                    const x0 = slot.cx - w / 2, y0 = slot.cy - h / 2;
+                    this._drawSlotWall(slot.gfx, x0, y0, w, h, false, item.incomeValue);
                 }
-                slot.gfx.lineStyle(2, 0xcc5500, 1);
-                slot.gfx.strokeRect(x0, y0, dw, dh);
+                if (slot.valTxt) {
+                    const bonusTxt = item.bonus ? `⭐${item.incomeValue}$` : `${item.incomeValue}$`;
+                    const bonusColor = item.bonus ? '#ffe033' : '#ffffff';
+                    slot.valTxt.setPosition(slot.cx, slot.cy).setText(bonusTxt).setColor(bonusColor);
+                }
             } else {
-                slot.bg.setFillStyle(0xd0d8ec).setStrokeStyle(1, 0xaabbcc).setAlpha(0.6).disableInteractive();
+                slot.bg.disableInteractive();
+                const bw = this.BALL_R * 2, bh = this.BALL_R * 2;
+                const x0 = slot.cx - bw / 2, y0 = slot.cy - bh / 2;
+                // outer glow halo gradient
+                [10, 8, 7, 6, 5, 4, 3, 2, 1].forEach(b => {
+                    slot.gfx.fillStyle(0x3322aa, (10 - b) * 0.006);
+                    slot.gfx.fillRect(x0 - b, y0 - b, bw + b * 2, bh + b * 2);
+                });
+                // ghost fill
+                slot.gfx.fillStyle(0x0c0e22, 0.5);
+                slot.gfx.fillRect(x0, y0, bw, bh);
+                // inner cross lines
+                slot.gfx.lineStyle(0.5, 0x4433bb, 0.22);
+                slot.gfx.lineBetween(x0 + bw / 2, y0 + 2, x0 + bw / 2, y0 + bh - 2);
+                slot.gfx.lineBetween(x0 + 2, y0 + bh / 2, x0 + bw - 2, y0 + bh / 2);
+                // outer border
+                slot.gfx.lineStyle(1, 0x4433bb, 0.45);
+                slot.gfx.strokeRect(x0, y0, bw, bh);
             }
         });
     }
 
+    _drawSlotWall(gfx, x0, y0, w, h, skipOutline = false, incomeValue = null) {
+        const iv = incomeValue !== null ? incomeValue : 5;
+        const colors = this._incomeToColors(iv);
+        const fillTop = this._darkenColor(colors.top, 0.32);
+        const fillBot = this._darkenColor(colors.bot, 0.45);
+        gfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
+        gfx.fillRect(x0, y0, w, h);
+        gfx.fillStyle(0x000000, 0.25);
+        gfx.fillRect(x0, y0 + h - Math.max(3, h * 0.12), w, Math.max(3, h * 0.12));
+        gfx.fillStyle(0xffffff, 0.09);
+        gfx.fillRect(x0, y0, w, Math.max(2, h * 0.08));
+        if (!skipOutline) {
+            gfx.lineStyle(2, colors.top, 0.9);
+            gfx.strokeRoundedRect(x0, y0, w, h, 5);
+        }
+    }
+
+    _scheduleRandomBlock() {
+        const delay = Phaser.Math.Between(40000, 60000);
+        this.time.delayedCall(delay, () => {
+            if (!this.scene.isActive() || this.gameWon) return;
+            this._spawnRandomBlock();
+            this._scheduleRandomBlock();
+        });
+    }
+
+    _playSpawnFlash(x, y, scale = 1.0) {
+        const D = this.BALL_R * 2;
+        const s = scale;
+        // All Graphics drawn at world coords — no { x,y } constructor, no scaleX/Y tween
+        // 1. Central white fill — just fades out
+        const cf = this.add.graphics().setDepth(28);
+        cf.fillStyle(0xffffff, 0.88); cf.fillCircle(x, y, D * 0.75 * s);
+        this.tweens.add({ targets: cf, alpha: 0, duration: 190, ease: 'Power3', onComplete: () => cf.destroy() });
+
+        // 2. Expanding rings — draw multiple rings with growing radii over time, each fades
+        const ringColors = [0xffffff, 0xffee88, 0xff88ff, 0xaaffcc];
+        for (let step = 0; step < 7; step++) {
+            this.time.delayedCall(step * 30, () => {
+                if (!this.scene.isActive()) return;
+                const r = (D * 0.6 + step * D * 0.22) * s;
+                const ring = this.add.graphics().setDepth(26);
+                ring.lineStyle(3 - step * 0.3, ringColors[step % ringColors.length], 1 - step * 0.1);
+                ring.strokeCircle(x, y, r);
+                this.tweens.add({ targets: ring, alpha: 0, duration: 220, ease: 'Power2', onComplete: () => ring.destroy() });
+            });
+        }
+
+        // 3. Star rays — drawn at world coords, just alpha fade
+        const rays = this.add.graphics().setDepth(27);
+        for (let a = 0; a < 8; a++) {
+            const ang = (a / 8) * Math.PI * 2;
+            const r1 = D * 0.45 * s, r2 = D * 1.3 * s;
+            rays.lineStyle(a % 2 === 0 ? 2.5 : 1.5, a % 2 === 0 ? 0xffffff : 0xffdd55, 1);
+            rays.lineBetween(x + Math.cos(ang) * r1, y + Math.sin(ang) * r1,
+                x + Math.cos(ang) * r2, y + Math.sin(ang) * r2);
+        }
+        this.tweens.add({ targets: rays, alpha: 0, duration: 320, ease: 'Power2', onComplete: () => rays.destroy() });
+
+        // 4. Main particle burst — emitter at (x,y), explode with no args = emits from emitter pos
+        const n1 = Math.max(6, Math.round(38 * Math.min(s, 1)));
+        const b1 = this.add.particles(x, y, 'wallDust', {
+            lifespan: { min: 200, max: 460 }, scale: { start: 0.9 * s, end: 0 }, alpha: { start: 1, end: 0 },
+            speed: { min: 35 * s, max: 120 * s }, angle: { min: 0, max: 360 },
+            tint: [0xffffff, 0xffee44, 0xff88cc, 0xaaffee, 0xffaaff], quantity: n1, frequency: -1,
+        }).setDepth(26);
+        b1.explode(n1, x, y);
+        this.time.delayedCall(680, () => { if (b1 && b1.active) b1.destroy(); });
+
+        // 5. Delayed second burst
+        this.time.delayedCall(140, () => {
+            if (!this.scene.isActive()) return;
+            const n2 = Math.max(4, Math.round(20 * Math.min(s, 1)));
+            const b2 = this.add.particles(x, y, 'wallDust', {
+                lifespan: { min: 160, max: 340 }, scale: { start: 0.55 * s, end: 0 }, alpha: { start: 1, end: 0 },
+                speed: { min: 18 * s, max: 75 * s }, angle: { min: 0, max: 360 },
+                tint: [0xffffff, 0xffe033, 0xff88ff], quantity: n2, frequency: -1,
+            }).setDepth(27);
+            b2.explode(n2, x, y);
+            this.time.delayedCall(480, () => { if (b2 && b2.active) b2.destroy(); });
+        });
+
+        // 6. Glitter dots — drawn at world coords, alpha only
+        const dotCount = Math.max(3, Math.round(8 * Math.min(s, 1)));
+        for (let i = 0; i < dotCount; i++) {
+            const ang = Math.random() * Math.PI * 2;
+            const dist = (D * 0.25 + Math.random() * D * 0.85) * s;
+            const sp = this.add.graphics().setDepth(29);
+            sp.fillStyle([0xffffff, 0xffee44, 0xff88ff, 0xaaffcc][i % 4], 1);
+            sp.fillCircle(x + Math.cos(ang) * dist, y + Math.sin(ang) * dist, (2 + Math.random() * 2) * Math.min(s, 1));
+            this.tweens.add({ targets: sp, alpha: 0, duration: 250 + Math.random() * 200, delay: i * 25, ease: 'Power2', onComplete: () => sp.destroy() });
+        }
+    }
+
+    _applySpecialWallStyle(wall, specialType, color, damage) {
+        wall.specialType = specialType;
+        if (!wall._fillGfx || !wall._outlineGfx) return;
+        const bdColor = color || 0x8855dd;
+        const colors = specialType === 'trap'
+            ? { fill: 0x220000, fillB: 0x440000, outline: 0xff2222 }
+            : specialType === 'slow'
+                ? { fill: 0x001030, fillB: 0x002060, outline: 0x2266ff }
+                : (specialType === 'boundary' || specialType === 'static')
+                    ? { fill: 0x060810, fillB: 0x0a0a16, outline: bdColor }
+                    : { fill: 0x1a1a1a, fillB: 0x2a2a2a, outline: 0x888888 };
+        const _rr = (specialType === 'trap' || specialType === 'slow')
+            ? Math.round(Math.min(wall.width, wall.height) * 0.2)
+            : 3;
+        if (_rr > 3 && wall._maskGfx) {
+            wall._drawMask = (wx, wy) => {
+                if (!wall._maskGfx || !wall._maskGfx.active) return;
+                wall._maskGfx.clear();
+                wall._maskGfx.fillStyle(0xffffff);
+                wall._maskGfx.fillRoundedRect(wx - wall.width / 2, wy - wall.height / 2, wall.width, wall.height, _rr);
+            };
+            wall._drawMask(wall.x, wall.y);
+        }
+        wall._drawFill = (ox, oy) => {
+            if (!wall._fillGfx || !wall._fillGfx.active) return;
+            wall._fillGfx.clear();
+            wall._fillGfx.fillGradientStyle(colors.fill, colors.fill, colors.fillB, colors.fillB, 1);
+            wall._fillGfx.fillRect(ox - wall.width / 2, oy - wall.height / 2, wall.width, wall.height);
+        };
+        wall._drawFill(wall.x, wall.y);
+        wall._drawOutline = (ox, oy, color, alpha) => {
+            if (!wall._outlineGfx || !wall._outlineGfx.active) return;
+            wall._outlineGfx.clear();
+            wall._outlineGfx.lineStyle(2, color !== undefined ? color : colors.outline, alpha !== undefined ? alpha : 0.9);
+            wall._outlineGfx.strokeRoundedRect(ox - wall.width / 2, oy - wall.height / 2, wall.width, wall.height, _rr);
+        };
+        wall._drawOutline(wall.x, wall.y);
+        if (wall._iconGfx) { try { wall._iconGfx.destroy(); } catch (e) { } wall._iconGfx = null; }
+        if (specialType === 'trap' || specialType === 'slow') {
+            const ig = this.add.graphics().setDepth(1.5);
+            wall._iconGfx = ig;
+            wall.on('destroy', () => { if (ig && ig.active) ig.destroy(); });
+            const cx = wall.x, cy = wall.y, hr = wall.width / 2 - 6;
+            if (specialType === 'trap') {
+                ig.lineStyle(3, 0xff2222, 0.65);
+                ig.lineBetween(cx - hr, cy - hr, cx + hr, cy + hr);
+                ig.lineBetween(cx + hr, cy - hr, cx - hr, cy + hr);
+                ig.lineStyle(2, 0xff4444, 0.45);
+                ig.strokeCircle(cx, cy, 5);
+                if (wall._fireEmitter) { try { wall._fireEmitter.destroy(); } catch (e) { } }
+                const _hw = wall.width / 2, _hh = wall.height / 2;
+                const _fe = this.add.particles(wall.x, wall.y, 'luz', {
+                    lifespan: 270,
+                    frequency: 40,
+                    quantity: 5,
+                    blendMode: 'ADD',
+                    gravityY: 20,
+                    speedX: { min: 0, max: 0 },
+                    speedY: { min: -180, max: 0 },
+                    scale: { start: 0.62, end: 0.46 },
+                    tint: [0xb58608, 0xaa3a16, 0xff0000, 0xd46a0d],
+                    alpha: { start: 1, end: 0.34 },
+                    emitZone: [{
+                        quantity: 32, type: 'edge', total: 32, yoyo: true,
+                        source: new Phaser.Geom.Triangle(-_hw, _hh, _hw, _hh, 0, -_hh)
+                    }]
+                }).setDepth(3.5);
+                wall._fireEmitter = _fe;
+                wall.on('destroy', () => { if (_fe && _fe.active) _fe.destroy(); });
+            } else {
+                const arms = 6;
+                ig.lineStyle(1.5, 0x88ccff, 0.75);
+                for (let i = 0; i < arms; i++) {
+                    const ang = (i / arms) * Math.PI * 2;
+                    const ex = cx + Math.cos(ang) * hr, ey = cy + Math.sin(ang) * hr;
+                    ig.lineBetween(cx, cy, ex, ey);
+                    const mx = cx + Math.cos(ang) * hr * 0.5, my = cy + Math.sin(ang) * hr * 0.5;
+                    const pa = ang + Math.PI / 2;
+                    ig.lineBetween(mx - Math.cos(pa) * 4, my - Math.sin(pa) * 4, mx + Math.cos(pa) * 4, my + Math.sin(pa) * 4);
+                }
+                ig.lineStyle(1.5, 0xaaddff, 0.55);
+                ig.strokeCircle(cx, cy, 3);
+                if (wall._snowEmitter) { try { wall._snowEmitter.destroy(); } catch (e) { } }
+                const _se = this.add.particles(wall.x, wall.y, 'star', {
+                    lifespan: 270,
+                    frequency: 40,
+                    quantity: 5,
+                    blendMode: 'ADD',
+                    gravityY: -10,
+                    speedX: { min: -80, max: 80 },
+                    speedY: { min: -80, max: 80 },
+                    scale: { start: 1.5, end: 0.23 },
+                    rotate: { start: 0, end: 360 },
+                    tint: [0x88ccff, 0xffffff, 0x00aaff],
+                    emitZone: [{
+                        quantity: 32, type: 'edge', total: 32, yoyo: false,
+                        source: new Phaser.Geom.Ellipse(0, 0, wall.width + 8, wall.height + 8)
+                    }]
+                }).setDepth(3.5);
+                wall._snowEmitter = _se;
+                wall.on('destroy', () => { if (_se && _se.active) _se.destroy(); });
+            }
+        }
+        if (wall.valueText) {
+            if (specialType === 'trap') {
+                const _dmg = damage || 5;
+                wall.trapDamage = _dmg;
+                wall.totalTaken = wall.totalTaken || 0;
+                wall._trapWindow = wall._trapWindow || [];
+                wall.valueText.setText(`-${_dmg}$`);
+                wall.valueText.setStyle({ fontSize: '15px', fill: '#ff6666', stroke: '#330000', strokeThickness: 4 });
+            } else if (specialType === 'slow') {
+                wall.valueText.setText('❄');
+                wall.valueText.setStyle({ fontSize: '24px', fill: '#aaddff', stroke: '#001133', strokeThickness: 5 });
+            } else {
+                wall.valueText.setText('');
+            }
+        }
+        if (specialType === 'boundary' || specialType === 'static') {
+            wall.isBoundary = true;
+            wall.removeInteractive();
+        }
+    }
+
+    _createZone(x, y, w, h) {
+        const hw = w / 2, hh = h / 2;
+        const diamond = [{ x, y: y - hh }, { x: x + hw, y }, { x, y: y + hh }, { x: x - hw, y }];
+
+        const gfx = this.add.graphics().setDepth(0.5);
+        gfx.fillStyle(0xffdd00, 0.13);
+        gfx.fillPoints(diamond, true);
+        gfx.lineStyle(1.5, 0xffee55, 0.38);
+        gfx.strokePoints(diamond, true);
+
+        // Pulsing ring (scale-only so fade-in/out alpha doesn't conflict)
+        const ring = this.add.circle(x, y, Math.min(w, h) / 2, 0xffcc00, 0)
+            .setStrokeStyle(2, 0xffdd22).setAlpha(0.55).setDepth(0.55);
+        this.tweens.add({
+            targets: ring,
+            scale: { from: 0.05, to: 1.25 },
+            duration: 1300,
+            repeat: -1,
+            yoyo: true,
+            ease: 'Sine.easeInOut'
+        });
+
+        const iconText = this.add.text(x, y, '◆', {
+            fontFamily: "'Impact'", fontSize: '16px', fill: '#ffdd44', stroke: '#1a1000', strokeThickness: 3
+        }).setOrigin(0.5).setDepth(1.8);
+
+        const txt = this.add.text(x, y + 10, '…$/s', {
+            fontFamily: "'Impact'", fontSize: '11px', fill: '#ffee88', stroke: '#1a1000', strokeThickness: 2
+        }).setOrigin(0.5).setDepth(1.8).setVisible(false);
+
+        const zoneObj = { x, y, hw, hh, gfx, ring, iconText, txt,
+            presenceSeconds: 0, incomePerSecond: 0, totalEarned: 0,
+            _allObjs: [gfx, ring, iconText, txt] };
+        this.zones.push(zoneObj);
+        gfx.setInteractive(new Phaser.Geom.Rectangle(x - hw, y - hh, w, h), Phaser.Geom.Rectangle.Contains);
+        gfx.on('pointerover', () => this._showZoneTooltip(zoneObj));
+        gfx.on('pointerout', () => this._hideWallTooltip());
+    }
+
+    _updateZones() {
+        if (!this.zones || !this.zones.length || !this.scene.isActive()) return;
+        let earned = 0;
+        this.zones.forEach(zone => {
+            zone.incomePerSecond = Math.floor(zone._incomeAccum || 0);
+            earned += zone.incomePerSecond;
+            zone.totalEarned = (zone.totalEarned || 0) + zone.incomePerSecond;
+            const acc = zone._incomeAccum || 0;
+            zone.txt.setText(acc > 0 ? `${acc.toFixed(1)}$/s` : '…$/s');
+        });
+        if (this.passiveIncomeText) this.passiveIncomeText.setText(`${earned}$/с`);
+        if (earned > 0) {
+            this.money += earned; this.totalEarned += earned;
+            this.updateUI();
+        }
+    }
+
+    _spawnRandomBlock() {
+        const D = this.BALL_R * 2;
+        const margin = D;
+        const x = Phaser.Math.Between(this.fieldOffsetX + margin, this.fieldOffsetX + this.fieldSize - margin);
+        const y = Phaser.Math.Between(this.fieldOffsetY + margin, this.fieldOffsetY + this.fieldSize - margin);
+        const incomeValue = Phaser.Math.Between(1, Math.max(3, Math.ceil(this._getMaxWallIncome() * 0.4)));
+
+        this.playSound('bonus');
+        this._playSpawnFlash(x, y, 1.0);
+
+        const wall = this.createWall(x, y, D, D, 'block', incomeValue);
+
+        // "БОНУС БЛОК" label
+        const label = this.add.text(x, y - 28, '✨ БОНУС БЛОК', {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '17px', fill: '#ffe033',
+            stroke: '#000000', strokeThickness: 4
+        }).setOrigin(0.5).setDepth(27);
+        this.tweens.add({ targets: label, y: y - 62, alpha: 0, duration: 1200, delay: 350, ease: 'Power1', onComplete: () => label.destroy() });
+    }
+
+    _scheduleUpgradeShimmer() {
+        const delay = Phaser.Math.Between(1600, 4200);
+        this.time.delayedCall(delay, () => {
+            if (!this.scene.isActive() || !this._upgradeBtnCenters) return;
+            this._doUpgradeShimmer(Phaser.Math.RND.pick(this._upgradeBtnCenters));
+            this._scheduleUpgradeShimmer();
+        });
+    }
+
+    _doUpgradeShimmer(btn) {
+        const { cx, cy } = btn;
+        const bx = cx - 98, by = cy - 80, bw = 196, bh = 152;
+        // bright fill flash
+        const flash = this.add.graphics().setDepth(17);
+        flash.fillStyle(0xffffff, 0.14);
+        flash.fillRoundedRect(bx, by, bw, bh, 8);
+        this.tweens.add({ targets: flash, alpha: 0, duration: 380, ease: 'Power2', onComplete: () => flash.destroy() });
+        // bright sweep strip
+        const shine = this.add.rectangle(cx, by + 10, bw - 8, 20, 0xffffff, 0.52).setDepth(19);
+        this.tweens.add({
+            targets: shine, y: by + bh - 10, alpha: { from: 0.52, to: 0 },
+            duration: 420, ease: 'Sine.easeIn',
+            onComplete: () => shine.destroy()
+        });
+        // bright border glow
+        const glow = this.add.graphics().setDepth(18);
+        glow.lineStyle(3, 0x88ffcc, 1);
+        glow.strokeRoundedRect(bx, by, bw, bh, 8);
+        this.tweens.add({ targets: glow, alpha: 0, duration: 480, ease: 'Power2', onComplete: () => glow.destroy() });
+    }
+
     createButton(cx, cy, emoji, label, initCost, callback) {
-        const w = 200, h = 50;
-        const bg    = this.add.rectangle(cx, cy, w, h, 0x3366cc).setStrokeStyle(2, 0x7799dd).setInteractive({ useHandCursor: true });
-        const emTxt = this.add.text(cx-w/2+10, cy,     emoji,          { fontSize: '20px' }).setOrigin(0, 0.5);
-        const lbTxt = this.add.text(cx-w/2+40, cy-9,   label,          { fontSize: '13px', fill: '#ffffff' }).setOrigin(0, 0.5);
-        const ctTxt = this.add.text(cx-w/2+40, cy+10,  `$${initCost}`, { fontSize: '12px', fill: '#ffdd88' }).setOrigin(0, 0.5);
-        bg.on('pointerover',  () => { this.playSound('hover'); bg.setStrokeStyle(2, 0xaaccff); });
-        bg.on('pointerout',   () => bg.setStrokeStyle(2, 0x7799dd));
-        bg.on('pointerdown',  callback);
-        return { bg, emTxt, lbTxt, ctTxt };
+        // block background — subtle dark panel for the whole column
+        const blockBg = this.add.graphics();
+        blockBg.fillStyle(0x0d2818, 0.72);
+        blockBg.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+        blockBg.lineStyle(1, 0x1e5a38, 0.4);
+        blockBg.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+
+        // transparent hit area (on top of blockBg)
+        const bg = this.add.rectangle(cx, cy - 4, 196, 152, 0x000000, 0)
+            .setInteractive({ useHandCursor: true });
+
+        // price panel
+        const px = cx - 80, py = cy - 78, pw = 160, ph = 20;
+        const pnlGfx = this.add.graphics();
+        pnlGfx.fillStyle(0x071609, 1);
+        pnlGfx.fillRoundedRect(px, py, pw, ph, 5);
+        pnlGfx.lineStyle(1, 0x1e6a3d, 0.7);
+        pnlGfx.strokeRoundedRect(px, py, pw, ph, 5);
+
+        const ctTxt = this.add.text(cx, py + ph / 2, `${initCost.toLocaleString()}$`, {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '23px', fill: '#ffdd88', stroke: '#010e05', strokeThickness: 2
+        }).setOrigin(0.5, 0.5);
+
+        // illustration container — setScale(1.8)
+        const illY = cy - 5;
+        const illCon = this.add.container(cx, illY).setScale(1.8);
+        const gfx = this.add.graphics();
+        if (emoji === '🟠') {
+            gfx.fillStyle(0x00ccff, 1); gfx.fillCircle(-20, 0, 22);
+            gfx.lineStyle(3, 0x88eeff, 1); gfx.strokeCircle(-20, 0, 22);
+            gfx.fillStyle(0xffffff, 0.5); gfx.fillCircle(-28, -8, 6);
+            const plus = this.add.text(6, 0, '+', {
+                fontSize: '40px', fill: '#00ee44', fontStyle: 'bold',
+                stroke: '#003311', strokeThickness: 3
+            }).setOrigin(0, 0.5);
+            illCon.add([gfx, plus]);
+        } else if (emoji === '🧱') {
+            // 2 small blocks behind (faded = distant), 1 large block in front
+            const backGfx = this.add.graphics();
+            backGfx.setAlpha(0.6);
+            this._drawSlotWall(backGfx, -32, -24, 20, 20, false, 3); // back-left, low income
+            this._drawSlotWall(backGfx, 6, -24, 20, 20, false, 8);   // back-right, mid income
+            this._drawSlotWall(gfx, -16, -16, 32, 32, false, 15);     // front block, high income
+            illCon.add([backGfx, gfx]);
+        } else {
+            this._drawSlotWall(gfx, -34, -22, 48, 44, false, 12);
+            gfx.fillStyle(0x18ee50, 1);
+            gfx.fillTriangle(22, -18, 12, 2, 32, 2);
+            gfx.fillRect(16, 2, 12, 14);
+            illCon.add(gfx);
+        }
+
+        // description background
+        const descY = cy + 57;
+        const descBg = this.add.graphics();
+        descBg.fillStyle(0x0e2e16, 1);
+        descBg.fillRoundedRect(cx - 80, descY - 11, 160, 22, 5);
+        descBg.lineStyle(1, 0x2a7a4d, 0.7);
+        descBg.strokeRoundedRect(cx - 80, descY - 11, 160, 22, 5);
+
+        const lbTxt = this.add.text(cx, descY, label, {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '21px', fill: '#ffffff', stroke: '#010e05', strokeThickness: 2
+        }).setOrigin(0.5, 0.5);
+
+        // hover highlight — bright glow border + white tint, only when affordable
+        const hoverGfx = this.add.graphics();
+        hoverGfx.fillStyle(0xffffff, 0.09);
+        hoverGfx.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+        hoverGfx.lineStyle(2, 0x44ff88, 0.9);
+        hoverGfx.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+        hoverGfx.setAlpha(0);
+
+        bg._cost = initCost;
+        bg.on('pointerover', () => {
+            this.playSound('hover');
+            hoverGfx.setAlpha(1);
+        });
+        bg.on('pointerout', () => hoverGfx.setAlpha(0));
+        bg.on('pointerdown', callback);
+
+        return { bg, blockBg, hoverGfx, pnlGfx, ctTxt, emTxt: illCon, plusTxt: null, descBg, lbTxt, level: 0 };
     }
 
     // ──── Input ────
 
     setupInput() {
         const _inField = (px, py) =>
-            px >= this.fieldOffsetX && px <= this.fieldOffsetX+this.fieldSize &&
-            py >= this.fieldOffsetY && py <= this.fieldOffsetY+this.fieldSize;
+            px >= this.fieldOffsetX && px <= this.fieldOffsetX + this.fieldSize &&
+            py >= this.fieldOffsetY && py <= this.fieldOffsetY + this.fieldSize;
 
         this.input.on('pointermove', pointer => {
-            if (!this.draggingNewWall || !this.wallPreview) return;
-            this.wallPreview.setPosition(pointer.x, pointer.y);
-            if (_inField(pointer.x, pointer.y)) {
-                const {w,h} = this.getWallDims(this.draggingWallType);
-                const cx = Phaser.Math.Clamp(pointer.x, this.fieldOffsetX+w/2, this.fieldOffsetX+this.fieldSize-w/2);
-                const cy = Phaser.Math.Clamp(pointer.y, this.fieldOffsetY+h/2, this.fieldOffsetY+this.fieldSize-h/2);
-                const chk = this.checkPlacementValid(cx, cy, w, h, this.draggingWallType);
-                if (chk.ok && chk.mergeTarget) { this.wallPreview.setFillStyle(0x886600,0.85); this.wallPreview.setStrokeStyle(3,0xffdd00); }
-                else if (chk.ok)               { this.wallPreview.setFillStyle(0x006633,0.85); this.wallPreview.setStrokeStyle(3,0x44ff88); }
-                else                           { this.wallPreview.setFillStyle(0x660000,0.85); this.wallPreview.setStrokeStyle(3,0xff4444); }
-            } else {
-                this.wallPreview.setFillStyle(0x88cc88, 0.7); this.wallPreview.setStrokeStyle(2, 0xffffff);
-            }
-        });
-
-        this.input.on('pointerup', pointer => {
+            // Slot wall preview follows cursor
             if (this.draggingNewWall && this.wallPreview) {
-                if (_inField(pointer.x, pointer.y)) this.placeWall(pointer.x, pointer.y);
-                this.wallPreview.destroy(); this.wallPreview = null;
-                this.draggingNewWall = false; this.updateUI();
-            }
-        });
-
-        this.input.on('dragstart', (pointer, obj) => {
-            if (!obj.isWall) return;
-            obj._originX = obj.x; obj._originY = obj.y;
-            obj.clearTint();
-            this.wallsGroup.remove(obj);
-            if (this.wallHand.length < 3) this.returnZoneBg.setFillStyle(0xffd8cc).setStrokeStyle(2, 0xff6644);
-        });
-
-        this.input.on('drag', (pointer, obj, dragX, dragY) => {
-            if (!obj.isWall) return;
-            obj.setPosition(dragX, dragY);
-            if (obj.valueText) obj.valueText.setPosition(dragX, dragY);
-            if (_inField(dragX, dragY)) {
-                const hw=obj.width/2, hh=obj.height/2;
-                const cx=Phaser.Math.Clamp(dragX, this.fieldOffsetX+hw, this.fieldOffsetX+this.fieldSize-hw);
-                const cy=Phaser.Math.Clamp(dragY, this.fieldOffsetY+hh, this.fieldOffsetY+this.fieldSize-hh);
-                const chk = this.checkPlacementValid(cx, cy, obj.width, obj.height, obj.wallType);
-                if (chk.ok && chk.mergeTarget) obj.setTint(0xffee00);
-                else if (chk.ok)               obj.setTint(0x88ff88);
-                else                           obj.setTint(0xff5555);
-            } else {
-                obj.clearTint();
-            }
-        });
-
-        this.input.on('dragend', (pointer, obj) => {
-            if (!obj.isWall) return;
-            obj.clearTint();
-            this.returnZoneBg.setFillStyle(0xf0f5ff).setStrokeStyle(1, 0x8899cc);
-
-            if (!_inField(pointer.x, pointer.y) && this.wallHand.length < 3) {
-                this.wallHand.push({ type: obj.wallType, incomeValue: obj.incomeValue });
-                if (obj.valueText) obj.valueText.destroy(); obj.destroy();
-                this.placedWalls--; this.playSound('return'); this.updateSlotsUI(); this.updateUI(); return;
-            }
-
-            let merged = false;
-            this.wallsGroup.children.iterate(other => {
-                if (merged||!other||other.wallType!==obj.wallType) return;
-                const ex1=other.x-other.width/2, ex2=other.x+other.width/2;
-                const ey1=other.y-other.height/2, ey2=other.y+other.height/2;
-                const gx1=obj.x-obj.width/2, gx2=obj.x+obj.width/2;
-                const gy1=obj.y-obj.height/2, gy2=obj.y+obj.height/2;
-                if (gx1<ex2&&gx2>ex1&&gy1<ey2&&gy2>ey1) {
-                    other.incomeValue += obj.incomeValue;
-                    if (other.valueText) other.valueText.setText(`$${other.incomeValue}`);
-                    this.tweens.add({ targets:other, alpha:0.15, duration:80, yoyo:true });
-                    if (obj.valueText) obj.valueText.destroy(); obj.destroy();
-                    this.placedWalls--; this.playSound('merge'); merged = true;
+                const wp = this.wallPreview;
+                const dx2 = pointer.x - (wp._lastPx !== undefined ? wp._lastPx : pointer.x);
+                const dy2 = pointer.y - (wp._lastPy !== undefined ? wp._lastPy : pointer.y);
+                if (wp.tilePositionX !== undefined) { wp.tilePositionX -= dx2 * 0.7; wp.tilePositionY -= dy2 * 0.7; }
+                wp._lastPx = pointer.x; wp._lastPy = pointer.y;
+                wp.setPosition(pointer.x, pointer.y);
+                if (wp._drawMask) wp._drawMask(pointer.x, pointer.y);
+                if (this._slotDragParticles) this._slotDragParticles.setPosition(pointer.x, pointer.y);
+                if (this._dragIncomeText) this._dragIncomeText.setPosition(pointer.x, pointer.y - (this.wallPreview ? this.wallPreview.height / 2 : 0) - 14);
+                // Outline follows cursor
+                if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y);
+                if (_inField(pointer.x, pointer.y)) {
+                    const { w, h } = this.getWallDims(this.draggingWallType);
+                    const cx = Phaser.Math.Clamp(pointer.x, this.fieldOffsetX + w / 2, this.fieldOffsetX + this.fieldSize - w / 2);
+                    const cy = Phaser.Math.Clamp(pointer.y, this.fieldOffsetY + h / 2, this.fieldOffsetY + this.fieldSize - h / 2);
+                    const chk = this.checkPlacementValid(cx, cy, w, h, this.draggingWallType);
+                    // Tint only the outline, not the whole block
+                    if (chk.ok && chk.mergeTarget) { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, 0xffee44); }
+                    else if (chk.ok) { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, 0x88ff88); }
+                    else { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, 0xff4444); }
+                } else {
+                    wp.clearTint ? wp.clearTint() : null;
+                    // Show merge hint when hovering over same-type hand slot
+                    const _msi = [167, 380, 593].findIndex((sx, i) =>
+                        Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
+                        this.wallHand[i] && this.wallHand[i].type === this.draggingWallType
+                    );
+                    if (_msi !== -1 && this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, 0xffee44);
                 }
-            });
-
-            if (!merged) {
-                const hw=obj.width/2, hh=obj.height/2;
-                const cx=Phaser.Math.Clamp(obj.x, this.fieldOffsetX+hw, this.fieldOffsetX+this.fieldSize-hw);
-                const cy=Phaser.Math.Clamp(obj.y, this.fieldOffsetY+hh, this.fieldOffsetY+this.fieldSize-hh);
-                let blocked = false;
-                this.wallsGroup.children.iterate(o2 => {
-                    if (blocked||!o2) return;
-                    if ((cx-hw)<o2.x+o2.width/2&&(cx+hw)>o2.x-o2.width/2&&
-                        (cy-hh)<o2.y+o2.height/2&&(cy+hh)>o2.y-o2.height/2) blocked=true;
-                });
-                const fx=blocked?obj._originX:cx, fy=blocked?obj._originY:cy;
-                obj.setPosition(fx, fy); if (obj.valueText) obj.valueText.setPosition(fx, fy);
-                this.wallsGroup.add(obj); obj.body.updateFromGameObject();
             }
+            // Carried field wall: follows cursor, texture scrolls, particles move
+            if (this._carryingFieldWall) {
+                const wall = this._carryingFieldWall;
+                const dx = pointer.x - (wall._lastPx !== undefined ? wall._lastPx : pointer.x);
+                const dy = pointer.y - (wall._lastPy !== undefined ? wall._lastPy : pointer.y);
+                wall.tilePositionX -= dx * 0.7;
+                wall.tilePositionY -= dy * 0.7;
+                wall._lastPx = pointer.x; wall._lastPy = pointer.y;
+                wall.setPosition(pointer.x, pointer.y);
+                if (wall._drawMask) wall._drawMask(pointer.x, pointer.y);
+                if (wall._drawFill) wall._drawFill(pointer.x, pointer.y);
+                if (wall.valueText) wall.valueText.setPosition(pointer.x, pointer.y);
+                if (this._carryParticles) this._carryParticles.setPosition(pointer.x, pointer.y);
+                wall.clearTint();
+                if (_inField(pointer.x, pointer.y)) {
+                    const hw = wall.width / 2, hh = wall.height / 2;
+                    const cx = Phaser.Math.Clamp(pointer.x, this.fieldOffsetX + hw, this.fieldOffsetX + this.fieldSize - hw);
+                    const cy = Phaser.Math.Clamp(pointer.y, this.fieldOffsetY + hh, this.fieldOffsetY + this.fieldSize - hh);
+                    const chk = this.checkPlacementValid(cx, cy, wall.width, wall.height, wall.wallType);
+                    // Tint only the outline, not the whole block
+                    if (chk.ok && chk.mergeTarget) { if (wall._drawOutline) wall._drawOutline(pointer.x, pointer.y, 0xffee00, 1); }
+                    else if (chk.ok) { if (wall._drawOutline) wall._drawOutline(pointer.x, pointer.y, 0x88ff88, 1); }
+                    else { if (wall._drawOutline) wall._drawOutline(pointer.x, pointer.y, 0xff4444, 1); }
+                } else {
+                    // Show merge hint when hovering over same-type hand slot
+                    const _fmsi = [167, 380, 593].findIndex((sx, i) =>
+                        Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
+                        this.wallHand[i] && this.wallHand[i].type === wall.wallType
+                    );
+                    const _foc = _fmsi !== -1 ? 0xffee00 : undefined;
+                    if (wall._drawOutline) wall._drawOutline(pointer.x, pointer.y, _foc, _foc !== undefined ? 1 : undefined);
+                }
+            }
+        });
+
+        this.input.on('pointerdown', pointer => {
+            // Swallow the pick-up click itself
+            if (this._carryingFieldWallJustPickedUp) { this._carryingFieldWallJustPickedUp = false; return; }
+            // Second click places the carried field wall
+            if (this._carryingFieldWall) { this._placeCarriedFieldWall(pointer); return; }
+            if (this._pickingUpWall) { this._pickingUpWall = false; return; }
+            if (!this.draggingNewWall || !this.wallPreview) return;
+            if (_inField(pointer.x, pointer.y)) {
+                const { w, h } = this.getWallDims(this.draggingWallType);
+                const cx = Phaser.Math.Clamp(pointer.x, this.fieldOffsetX + w / 2, this.fieldOffsetX + this.fieldSize - w / 2);
+                const cy = Phaser.Math.Clamp(pointer.y, this.fieldOffsetY + h / 2, this.fieldOffsetY + this.fieldSize - h / 2);
+                const chk = this.checkPlacementValid(cx, cy, w, h, this.draggingWallType);
+                if (!chk.ok) { this.showError(chk.reason); return; }
+                this.placeWall(pointer.x, pointer.y);
+            } else {
+                const slotXs = [167, 380, 593];
+                // Hand-to-hand merge: same type in an occupied slot
+                const mergeSlot = slotXs.findIndex((sx, i) =>
+                    Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
+                    this.wallHand[i] && this.wallHand[i].type === this.draggingWallType && i !== this.draggingSlotIndex
+                );
+                if (mergeSlot !== -1) {
+                    this.wallHand[mergeSlot].incomeValue += this.draggingIncomeValue;
+                    this._draggedSlotItem = null;
+                    this.playSound('merge');
+                    this.time.delayedCall(60, () => { this._playSpawnFlash(slotXs[mergeSlot], this.slotY, 0.42); });
+                    this.updateSlotsUI();
+                } else {
+                    // Place in empty slot
+                    const targetSlot = slotXs.findIndex((sx, i) =>
+                        Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
+                        !this.wallHand[i] && i !== this.draggingSlotIndex
+                    );
+                    if (targetSlot !== -1) {
+                        this.wallHand[targetSlot] = { type: this.draggingWallType, incomeValue: this.draggingIncomeValue };
+                        this.updateSlotsUI();
+                        this.playSound('place');
+                    } else {
+                        this.wallHand[this.draggingSlotIndex] = this._draggedSlotItem;
+                        this._draggedSlotItem = null;
+                        this.updateSlotsUI();
+                    }
+                }
+            }
+            if (this.wallPreview) { this.wallPreview.destroy(); this.wallPreview = null; }
+            if (this._dragIncomeText) { this._dragIncomeText.destroy(); this._dragIncomeText = null; }
+            if (this._slotDragOutlineGfx) { this._slotDragOutlineGfx.destroy(); this._slotDragOutlineGfx = null; } this._drawSlotDragOutline = null;
+            if (this._slotDragParticles) { this._slotDragParticles.stop(); this.time.delayedCall(600, () => { if (this._slotDragParticles && this._slotDragParticles.active) this._slotDragParticles.destroy(); this._slotDragParticles = null; }); }
+            this.draggingNewWall = false;
+            this._physicsSpeedMult = 1;
             this.updateUI();
+        });
+
+        this.input.keyboard.on('keydown-ESC', () => {
+            if (this.draggingNewWall && this.wallPreview) {
+                this.wallPreview.destroy(); this.wallPreview = null;
+                if (this._dragIncomeText) { this._dragIncomeText.destroy(); this._dragIncomeText = null; }
+                if (this._slotDragOutlineGfx) { this._slotDragOutlineGfx.destroy(); this._slotDragOutlineGfx = null; } this._drawSlotDragOutline = null;
+                if (this._slotDragParticles) { this._slotDragParticles.stop(); this.time.delayedCall(600, () => { if (this._slotDragParticles && this._slotDragParticles.active) this._slotDragParticles.destroy(); this._slotDragParticles = null; }); }
+                if (this._draggedSlotItem) { this.wallHand[this.draggingSlotIndex] = this._draggedSlotItem; this._draggedSlotItem = null; this.updateSlotsUI(); }
+                this.draggingNewWall = false;
+                this._physicsSpeedMult = 1;
+                this.updateUI();
+            }
+            if (this._carryingFieldWall) {
+                const wall = this._carryingFieldWall;
+                this._carryingFieldWall = null;
+                this._stopCarryParticles();
+                this._physicsSpeedMult = 1;
+                wall.clearTint();
+                wall.setPosition(wall._originX, wall._originY);
+                if (wall._drawMask) wall._drawMask(wall._originX, wall._originY);
+                if (wall._drawFill) wall._drawFill(wall._originX, wall._originY);
+                wall.setDepth(0);
+                if (wall._fillGfx) wall._fillGfx.setDepth(1);
+                if (wall._drawOutline) { wall._drawOutline(wall._originX, wall._originY); wall._outlineGfx.setAlpha(1); wall._outlineGfx.setDepth(2.5); }
+                if (wall.valueText) { wall.valueText.setPosition(wall._originX, wall._originY); wall.valueText.setDepth(3); }
+                this.wallsGroup.add(wall); wall.body.updateFromGameObject();
+                this.updateUI();
+            }
         });
     }
 
     startWallDragFromSlot(pointer, slotIndex) {
-        if (slotIndex >= this.wallHand.length || this.draggingNewWall) return;
-        this.draggingNewWall = true; this.draggingSlotIndex = slotIndex;
+        if (!this.wallHand[slotIndex] || this.draggingNewWall || this._carryingFieldWall) return;
+        this.draggingNewWall = true; this._pickingUpWall = true; this.draggingSlotIndex = slotIndex;
         const item = this.wallHand[slotIndex];
         this.draggingWallType = item.type; this.draggingIncomeValue = item.incomeValue;
-        const {w, h} = this.getWallDims(item.type);
-        this.wallPreview = this.add.rectangle(pointer.x, pointer.y, w, h, 0x88cc88, 0.7)
-            .setStrokeStyle(2, 0xffffff).setDepth(10);
+        this._draggedSlotItem = item;
+        this.wallHand[slotIndex] = null;
+        // Clear slot visually without full updateSlotsUI (avoids disableInteractive during event dispatch)
+        const _srcSlot = this.wallSlots[slotIndex];
+        if (_srcSlot) { _srcSlot.gfx.clear(); if (_srcSlot.valTxt) _srcSlot.valTxt.setText(''); }
+        const { w, h } = this.getWallDims(item.type);
+        const type = item.type;
+
+        // Gradient fill preview (colored by income value, clipped to wall shape)
+        const preview = this.add.tileSprite(pointer.x, pointer.y, w, h, 'checker').setDepth(10).setAlpha(0.001);
+        const _prevFillGfx = this.add.graphics().setDepth(10).setAlpha(0.9);
+        const pmGfx = this.make.graphics({ add: false });
+        const _D = this.BALL_R * 2;
+        const drawPM = (px, py) => {
+            pmGfx.clear(); pmGfx.fillStyle(0xffffff);
+            const r = 5;
+            if (type === 'tDown') { pmGfx.fillRoundedRect(px - w / 2, py - h / 2, w, _D, r); pmGfx.fillRoundedRect(px - _D / 2, py - h / 2 + _D, _D, _D, r); }
+            else if (type === 'tUp') { pmGfx.fillRoundedRect(px - _D / 2, py - h / 2, _D, _D, r); pmGfx.fillRoundedRect(px - w / 2, py - h / 2 + _D, w, _D, r); }
+            else if (type === 'tLeft') { pmGfx.fillRoundedRect(px - w / 2, py - _D / 2, _D, _D, r); pmGfx.fillRoundedRect(px - w / 2 + _D, py - h / 2, _D, h, r); }
+            else if (type === 'tRight') { pmGfx.fillRoundedRect(px - w / 2, py - h / 2, _D, h, r); pmGfx.fillRoundedRect(px - w / 2 + _D, py - _D / 2, _D, _D, r); }
+            else { pmGfx.fillRoundedRect(px - w / 2, py - h / 2, w, h, r); }
+        };
+        const drawPrevFill = (px, py) => {
+            _prevFillGfx.clear();
+            const { top, bot } = this._incomeToColors(this.draggingIncomeValue);
+            _prevFillGfx.fillGradientStyle(top, top, bot, bot, 0.9);
+            _prevFillGfx.fillRect(px - w / 2, py - h / 2, w, h);
+        };
+        drawPM(pointer.x, pointer.y);
+        drawPrevFill(pointer.x, pointer.y);
+        preview.setMask(pmGfx.createGeometryMask());
+        _prevFillGfx.setMask(pmGfx.createGeometryMask());
+        preview._drawMask = (px, py) => { drawPM(px, py); drawPrevFill(px, py); };
+        preview.on('destroy', () => { if (pmGfx.active) pmGfx.destroy(); if (_prevFillGfx.active) _prevFillGfx.destroy(); });
+        preview._lastPx = pointer.x; preview._lastPy = pointer.y;
+        this.wallPreview = preview;
+
+        // Slot-drag outline (follows cursor, changes color on validation)
+        const sdOGfx = this.add.graphics().setDepth(10.5);
+        const drawSDO = (px, py, color = 0xffffff) => {
+            sdOGfx.clear(); sdOGfx.lineStyle(2, color, 0.9);
+            if (type === 'tDown') {
+                sdOGfx.beginPath();
+                sdOGfx.moveTo(px - w / 2, py - h / 2); sdOGfx.lineTo(px + w / 2, py - h / 2);
+                sdOGfx.lineTo(px + w / 2, py - h / 2 + _D); sdOGfx.lineTo(px + _D / 2, py - h / 2 + _D);
+                sdOGfx.lineTo(px + _D / 2, py + h / 2); sdOGfx.lineTo(px - _D / 2, py + h / 2);
+                sdOGfx.lineTo(px - _D / 2, py - h / 2 + _D); sdOGfx.lineTo(px - w / 2, py - h / 2 + _D);
+                sdOGfx.closePath(); sdOGfx.strokePath();
+            } else if (type === 'tUp') {
+                sdOGfx.beginPath();
+                sdOGfx.moveTo(px - _D / 2, py - h / 2); sdOGfx.lineTo(px + _D / 2, py - h / 2);
+                sdOGfx.lineTo(px + _D / 2, py - h / 2 + _D); sdOGfx.lineTo(px + w / 2, py - h / 2 + _D);
+                sdOGfx.lineTo(px + w / 2, py + h / 2); sdOGfx.lineTo(px - w / 2, py + h / 2);
+                sdOGfx.lineTo(px - w / 2, py - h / 2 + _D); sdOGfx.lineTo(px - _D / 2, py - h / 2 + _D);
+                sdOGfx.closePath(); sdOGfx.strokePath();
+            } else if (type === 'tLeft') {
+                sdOGfx.beginPath();
+                sdOGfx.moveTo(px - w / 2 + _D, py - h / 2); sdOGfx.lineTo(px + w / 2, py - h / 2);
+                sdOGfx.lineTo(px + w / 2, py + h / 2); sdOGfx.lineTo(px - w / 2 + _D, py + h / 2);
+                sdOGfx.lineTo(px - w / 2 + _D, py + _D / 2); sdOGfx.lineTo(px - w / 2, py + _D / 2);
+                sdOGfx.lineTo(px - w / 2, py - _D / 2); sdOGfx.lineTo(px - w / 2 + _D, py - _D / 2);
+                sdOGfx.closePath(); sdOGfx.strokePath();
+            } else if (type === 'tRight') {
+                sdOGfx.beginPath();
+                sdOGfx.moveTo(px - w / 2, py - h / 2); sdOGfx.lineTo(px - w / 2 + _D, py - h / 2);
+                sdOGfx.lineTo(px - w / 2 + _D, py - _D / 2); sdOGfx.lineTo(px + w / 2, py - _D / 2);
+                sdOGfx.lineTo(px + w / 2, py + _D / 2); sdOGfx.lineTo(px - w / 2 + _D, py + _D / 2);
+                sdOGfx.lineTo(px - w / 2 + _D, py + h / 2); sdOGfx.lineTo(px - w / 2, py + h / 2);
+                sdOGfx.closePath(); sdOGfx.strokePath();
+            } else { sdOGfx.strokeRoundedRect(px - w / 2, py - h / 2, w, h, 5); }
+        };
+        drawSDO(pointer.x, pointer.y);
+        this._slotDragOutlineGfx = sdOGfx;
+        this._drawSlotDragOutline = drawSDO;
+
+        this._dragIncomeText = this.add.text(pointer.x, pointer.y - h / 2 - 14, `${item.incomeValue}$`, {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '20px', fill: '#ffdd44',
+            stroke: '#000000', strokeThickness: 4
+        }).setOrigin(0.5, 1).setDepth(11);
+
+        // dust particles for slot drag
+        this._slotDragParticles = this.add.particles(pointer.x, pointer.y, 'wallDust', {
+            lifespan: { min: 170, max: 340 },
+            scale: { start: 0.34, end: 0.0 },
+            alpha: { start: 0.9, end: 1 },
+            speed: { min: 200, max: 240 },
+            angle: { min: 0, max: 360 },
+            // tint: [0xff8833, 0xffaa44, 0xcc5511, 0xffd070, 0xff6600],
+
+            // tint: [0xfff833, 0xffaa44, 0xffffff, 0xffd070, 0xff6600],
+            tint: [0xffaa44, 0xfff833, 0xffffff],
+            quantity: 4,
+            frequency: 30,
+            blendMode: 'ADD'
+        }).setDepth(11);
+
+        this._physicsSpeedMult = 0.5;
     }
 
     placeWall(x, y) {
         const type = this.draggingWallType;
-        const {w, h} = this.getWallDims(type);
-        const fo=this.fieldOffsetX, fy=this.fieldOffsetY, fs=this.fieldSize;
-        const cx = Phaser.Math.Clamp(x, fo+w/2, fo+fs-w/2);
-        const cy = Phaser.Math.Clamp(y, fy+h/2, fy+fs-h/2);
+        const { w, h } = this.getWallDims(type);
+        const fo = this.fieldOffsetX, fy = this.fieldOffsetY, fs = this.fieldSize;
+        const cx = Phaser.Math.Clamp(x, fo + w / 2, fo + fs - w / 2);
+        const cy = Phaser.Math.Clamp(y, fy + h / 2, fy + fs - h / 2);
         const chk = this.checkPlacementValid(cx, cy, w, h, type);
         if (!chk.ok) { this.showError(chk.reason); return; }
         if (chk.mergeTarget) {
             const tgt = chk.mergeTarget; tgt.incomeValue += this.draggingIncomeValue;
-            if (tgt.valueText) tgt.valueText.setText(`$${tgt.incomeValue}`);
-            this.tweens.add({ targets:tgt, alpha:0.15, duration:80, yoyo:true });
+            if (tgt.valueText) tgt.valueText.setText(`${tgt.incomeValue}$`);
+            this.tweens.add({ targets: tgt, alpha: 0.15, duration: 80, yoyo: true });
             this.playSound('merge');
         } else {
             this.createWall(cx, cy, w, h, type, this.draggingIncomeValue);
             this.placedWalls++; this.playSound('place');
         }
-        this.wallHand.splice(this.draggingSlotIndex, 1);
+        this.wallHand[this.draggingSlotIndex] = null;
         this.updateSlotsUI();
+    }
+
+    _pickUpFieldWall(ptr, wall) {
+        if (wall.isBoundary || wall.isEditorWall || this.draggingNewWall || this._carryingFieldWall) return;
+        this._carryingFieldWall = wall;
+        this._carryingFieldWallJustPickedUp = true;
+        wall._originX = wall.x; wall._originY = wall.y;
+        wall._lastPx = undefined; wall._lastPy = undefined;
+        wall.clearTint();
+        this._hideWallTooltip();
+        this.wallsGroup.remove(wall);
+        wall.setDepth(12);
+        if (wall._fillGfx) wall._fillGfx.setDepth(12);
+        if (wall._outlineGfx) { wall._outlineGfx.setAlpha(1); wall._outlineGfx.setDepth(12.5); }
+        if (wall.valueText) wall.valueText.setDepth(13);
+        this._physicsSpeedMult = 0.5;
+        this._startCarryParticles(wall);
+    }
+
+    _placeCarriedFieldWall(pointer) {
+        const wall = this._carryingFieldWall;
+        this._carryingFieldWall = null;
+        this._stopCarryParticles();
+        this._physicsSpeedMult = 1;
+        wall.clearTint();
+
+        const inField = (px, py) =>
+            px >= this.fieldOffsetX && px <= this.fieldOffsetX + this.fieldSize &&
+            py >= this.fieldOffsetY && py <= this.fieldOffsetY + this.fieldSize;
+
+        if (!inField(pointer.x, pointer.y)) {
+            const slotXs = [167, 380, 593];
+            // Field-to-hand merge: same type in an occupied slot
+            const mergeSlot = slotXs.findIndex((sx, i) =>
+                Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
+                this.wallHand[i] && this.wallHand[i].type === wall.wallType
+            );
+            if (mergeSlot !== -1) {
+                this.wallHand[mergeSlot].incomeValue += wall.incomeValue;
+                if (wall.valueText) wall.valueText.destroy(); wall.destroy();
+                this.placedWalls--;
+                this.playSound('merge');
+                this.time.delayedCall(60, () => { this._playSpawnFlash(slotXs[mergeSlot], this.slotY, 0.42); });
+                this.updateSlotsUI(); this.updateUI(); return;
+            }
+            // Return to hand in empty slot
+            if (this.wallHand.filter(Boolean).length < 3) {
+                const nearest = slotXs.reduce((bi, sx, i) => Math.abs(pointer.x - sx) < Math.abs(pointer.x - slotXs[bi]) ? i : bi, 0);
+                const target = !this.wallHand[nearest] ? nearest : this.wallHand.findIndex(s => !s);
+                if (target === -1) { this.wallsGroup.add(wall); wall.body.updateFromGameObject(); this.updateUI(); return; }
+                this.wallHand[target] = { type: wall.wallType, incomeValue: wall.incomeValue };
+                if (wall.valueText) wall.valueText.destroy(); wall.destroy();
+                this.placedWalls--; this.playSound('return'); this.updateSlotsUI(); this.updateUI(); return;
+            }
+        }
+
+        const _doMerge = (other) => {
+            other.incomeValue += wall.incomeValue;
+            if (other.valueText) other.valueText.setText(`${other.incomeValue}$`);
+            if (other._drawFill) other._drawFill(other.x, other.y);
+            if (other._drawOutline) other._drawOutline(other.x, other.y);
+            if (other._fillGfx) this.tweens.add({ targets: other._fillGfx, alpha: 0.2, duration: 80, yoyo: true, onComplete: () => { if (other._fillGfx && other._fillGfx.active) other._fillGfx.setAlpha(1); } });
+            if (wall.valueText) wall.valueText.destroy(); wall.destroy();
+            this.placedWalls--; this.playSound('merge');
+        };
+        let merged = false;
+        // Priority: cursor center directly inside another wall (skip editor walls)
+        this.wallsGroup.children.iterate(other => {
+            if (merged || !other || other.isEditorWall || other.wallType !== wall.wallType) return;
+            if (wall.x > other.x - other.width / 2 && wall.x < other.x + other.width / 2 &&
+                wall.y > other.y - other.height / 2 && wall.y < other.y + other.height / 2) {
+                _doMerge(other); merged = true;
+            }
+        });
+        // Fallback: any rect overlap (skip editor walls)
+        if (!merged) {
+            this.wallsGroup.children.iterate(other => {
+                if (merged || !other || other.isEditorWall || other.wallType !== wall.wallType) return;
+                const ex1 = other.x - other.width / 2, ex2 = other.x + other.width / 2;
+                const ey1 = other.y - other.height / 2, ey2 = other.y + other.height / 2;
+                const gx1 = wall.x - wall.width / 2, gx2 = wall.x + wall.width / 2;
+                const gy1 = wall.y - wall.height / 2, gy2 = wall.y + wall.height / 2;
+                if (gx1 < ex2 && gx2 > ex1 && gy1 < ey2 && gy2 > ey1) {
+                    _doMerge(other); merged = true;
+                }
+            });
+        }
+
+        if (!merged) {
+            const hw = wall.width / 2, hh = wall.height / 2;
+            const cx = Phaser.Math.Clamp(wall.x, this.fieldOffsetX + hw, this.fieldOffsetX + this.fieldSize - hw);
+            const cy = Phaser.Math.Clamp(wall.y, this.fieldOffsetY + hh, this.fieldOffsetY + this.fieldSize - hh);
+            let blocked = false;
+            const newRects2 = this._getNewWallRects(cx, cy, wall.width, wall.height, wall.wallType);
+            const SHRINK2 = 3;
+            this.wallsGroup.children.iterate(o2 => {
+                if (blocked || !o2) return;
+                const o2Rects = this._getWallCollisionRects(o2);
+                for (const nr of newRects2) {
+                    for (const er of o2Rects) {
+                        if ((nr.x - nr.hw + SHRINK2) < (er.x + er.hw) && (nr.x + nr.hw - SHRINK2) > (er.x - er.hw) &&
+                            (nr.y - nr.hh + SHRINK2) < (er.y + er.hh) && (nr.y + nr.hh - SHRINK2) > (er.y - er.hh)) {
+                            blocked = true; return;
+                        }
+                    }
+                }
+            });
+            const fx = blocked ? wall._originX : cx, fy = blocked ? wall._originY : cy;
+            const moved = !blocked && (Math.abs(fx - wall._originX) > 1 || Math.abs(fy - wall._originY) > 1);
+            if (moved) {
+                const newVal = Math.max(1, Math.floor(wall.incomeValue * 0.9));
+                wall.incomeValue = newVal;
+                if (wall.valueText && wall.valueText.active) wall.valueText.setText(`${newVal}$`);
+            }
+            wall.setPosition(fx, fy);
+            wall.setDepth(0);
+            if (wall._drawMask) wall._drawMask(fx, fy);
+            if (wall._drawFill) wall._drawFill(fx, fy);
+            if (wall._fillGfx) wall._fillGfx.setDepth(1);
+            if (wall._drawOutline) { wall._drawOutline(fx, fy); wall._outlineGfx.setAlpha(1); wall._outlineGfx.setDepth(2.5); }
+            if (wall.valueText) { wall.valueText.setPosition(fx, fy); wall.valueText.setDepth(3); }
+            this.wallsGroup.add(wall); wall.body.updateFromGameObject();
+        }
+        this.updateUI();
+    }
+
+    _startCarryParticles(wall) {
+        if (this._carryParticles) { this._carryParticles.destroy(); this._carryParticles = null; }
+        this._carryParticles = this.add.particles(wall.x, wall.y, 'wallDust', {
+            lifespan: { min: 170, max: 340 },
+            scale: { start: 0.34, end: 0.0 },
+            alpha: { start: 0.9, end: 1 },
+            speed: { min: 200, max: 240 },
+            angle: { min: 0, max: 360 },
+            // tint: [0xff8833, 0xffaa44, 0xcc5511, 0xffd070, 0xff6600],
+
+            // tint: [0xfff833, 0xffaa44, 0xffffff, 0xffd070, 0xff6600],
+            tint: [0xffaa44, 0xfff833, 0xffffff],
+            quantity: 4,
+            frequency: 30,
+            blendMode: 'ADD'
+        }).setDepth(15);
+    }
+
+    _stopCarryParticles() {
+        if (this._carryParticles) {
+            this._carryParticles.stop();
+            const ref = this._carryParticles;
+            this.time.delayedCall(800, () => { if (ref && ref.active) ref.destroy(); });
+            this._carryParticles = null;
+        }
     }
 
     // ──── Purchases ────
 
+    _flashPurchase(cx, cy) {
+        // bright block fill flash
+        const flash = this.add.graphics().setDepth(21);
+        flash.fillStyle(0xccffdd, 0.78);
+        flash.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+        this.tweens.add({ targets: flash, alpha: 0, duration: 420, ease: 'Power2', onComplete: () => flash.destroy() });
+
+        // 3 rings expanding at different speeds
+        [
+            { scale: 1.28, dur: 380, color: 0xffffff, lw: 3 },
+            { scale: 1.45, dur: 560, color: 0x44ff88, lw: 2 },
+            { scale: 1.18, dur: 260, color: 0xaaffcc, lw: 2 },
+        ].forEach(({ scale, dur, color, lw }) => {
+            const ring = this.add.graphics().setDepth(22);
+            ring.lineStyle(lw, color, 1);
+            ring.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+            this.tweens.add({ targets: ring, scaleX: scale, scaleY: scale, alpha: 0, duration: dur, ease: 'Power2', onComplete: () => ring.destroy() });
+        });
+
+        // large burst
+        const burst = this.add.particles(cx, cy - 4, 'wallDust', {
+            lifespan: { min: 320, max: 680 },
+            scale: { start: 0.85, end: 0 },
+            alpha: { start: 1, end: 0 },
+            speed: { min: 55, max: 220 },
+            angle: { min: 0, max: 360 },
+            tint: [0x44ff88, 0xaaffcc, 0xffffff, 0x22dd66, 0x88ffaa, 0xffdd44],
+            quantity: 30,
+            frequency: -1,
+        }).setDepth(22);
+        burst.explode(30, cx, cy - 4);
+        this.time.delayedCall(130, () => { if (burst && burst.active) burst.explode(14, cx, cy - 4); });
+        this.time.delayedCall(900, () => { if (burst && burst.active) burst.destroy(); });
+    }
+
     buyBall() {
         if (this.money < this.ballCost) return;
         this.money -= this.ballCost;
-        this.ballCost = Math.round(this.ballCost * 1.4);
-        this.playSound('buy'); this.createBall(); this.updateUI();
+        this.buttonBall.level = (this.buttonBall.level || 0) + 1;
+        const _bt = [20, 200, 800, 2000, 4000, 8000, 12000, 16000, 24000, 28000, 32000];
+        this.ballCost = _bt[Math.min(this.buttonBall.level, _bt.length - 1)];
+        this.playSound('buy');
+        const ballCount = this.ballsGroup.getLength();
+        if (ballCount < 12) {
+            this.createBall();
+        } else {
+            const upgradable = this.ballsGroup.getChildren().filter(b => !b.multiplier || b.multiplier < 3);
+            if (upgradable.length > 0) this._upgradeBall(Phaser.Utils.Array.GetRandom(upgradable));
+        }
+        this._flashPurchase(167, this.btnY);
+        this.time.delayedCall(80, () => { this._playSpawnFlash(167, this.btnY, 0.85); });
+        this.updateUI();
+    }
+
+    _upgradeBall(ball) {
+        ball.multiplier = Math.min((ball.multiplier || 1) + 1, 3);
+        const _cols = { 2: { fill: 0xff8833, stroke: 0xffdd00 }, 3: { fill: 0xff3300, stroke: 0xffee44 } };
+        const c = _cols[ball.multiplier];
+        ball.setFillStyle(c.fill);
+        ball.setStrokeStyle(1, c.stroke);
+        if (ball._multLabel && ball._multLabel.active) {
+            ball._multLabel.setText(`x${ball.multiplier}`);
+        } else {
+            ball._multLabel = this.add.text(ball.x, ball.y, `x${ball.multiplier}`, {
+                fontFamily: "'Impact'", fontSize: '11px', fill: '#ffffff', stroke: '#000000', strokeThickness: 3
+            }).setOrigin(0.5).setDepth(2.5);
+            ball.on('destroy', () => { if (ball._multLabel && ball._multLabel.active) ball._multLabel.destroy(); });
+        }
     }
 
     buyWallPack() {
         if (this.money < this.wallPackCost) return;
         this.money -= this.wallPackCost; this.playSound('buy');
-        this.wallHand = [];
-        const types = ['horizontal','vertical','block'];
-        for (let i=0;i<3;i++) this.wallHand.push({ type:Phaser.Math.RND.pick(types), incomeValue:this.incomeBase });
-        this.wallPackCost = Math.round(this.wallPackCost * 1.4);
+        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight'];
+        this.wallHand = [
+            this._genWallItem(types),
+            this._genWallItem(types),
+            this._genWallItem(types)
+        ];
+        const bonusCount = this.wallHand.filter(item => item && item.bonus).length;
+        if (bonusCount > 0) {
+            this._showBonusMessage(bonusCount);
+            this.playSound('bonus');
+            const slotXPositions = [167, 380, 593];
+            this.wallHand.forEach((item, i) => {
+                if (item && item.bonus) {
+                    this.time.delayedCall(i * 140, () => {
+                        if (this.scene.isActive()) this._playSpawnFlash(slotXPositions[i], this.slotY, 0.48);
+                    });
+                }
+            });
+        }
+        this.buttonWallPack.level = (this.buttonWallPack.level || 0) + 1;
+        const _wt = [20, 120, 240, 400, 800, 1500];
+        this.wallPackCost = _wt[Math.min(this.buttonWallPack.level, _wt.length - 1)];
+        this._flashPurchase(380, this.btnY);
+        this.time.delayedCall(80, () => { this._playSpawnFlash(380, this.btnY, 0.85); });
         this.updateSlotsUI(); this.updateUI();
     }
 
     buyIncomeUpgrade() {
         if (this.money < this.incomeCost) return;
         this.money -= this.incomeCost; this.playSound('buy');
-        const boost = this.incomeBase;
+        const slotOldVals = this.wallHand.map(item => item ? item.incomeValue : null);
         this.wallsGroup.children.iterate(wall => {
-            if (!wall) return; wall.incomeValue += boost;
-            if (wall.valueText) wall.valueText.setText(`$${wall.incomeValue}`);
+            if (!wall) return;
+            const oldVal = wall.incomeValue;
+            const pct = 0.08 + Math.random() * 0.03;
+            wall.incomeValue = Math.ceil(oldVal + 1 + oldVal * pct);
+            if (wall._drawFill) wall._drawFill(wall.x, wall.y);
+            if (wall._drawOutline) wall._drawOutline(wall.x, wall.y);
+            this._animateIncomeUpgrade(wall, oldVal, wall.incomeValue);
         });
-        this.wallHand.forEach(item => { item.incomeValue += boost; });
-        this.incomeCost = Math.round(this.incomeCost * 1.4);
+        this.wallHand.forEach(item => {
+            if (item) { const p = 0.08 + Math.random() * 0.03; item.incomeValue = Math.ceil(item.incomeValue + 1 + item.incomeValue * p); }
+        });
+        this.buttonIncome.level = (this.buttonIncome.level || 0) + 1;
+        const _it = [50, 150, 350, 500, 1000, 2000, 3000, 5000, 10000];
+        this.incomeCost = _it[Math.min(this.buttonIncome.level, _it.length - 1)];
+        this._flashPurchase(593, this.btnY);
+        this.time.delayedCall(80, () => { this._playSpawnFlash(593, this.btnY, 0.85); });
         this.updateSlotsUI(); this.updateUI();
+        this.wallSlots.forEach((slot, i) => {
+            const item = this.wallHand[i];
+            const oldVal = slotOldVals[i];
+            if (item && oldVal !== null) this._animateSlotIncomeUpgrade(slot, oldVal, item.incomeValue);
+        });
+    }
+
+    _animateIncomeUpgrade(wall, oldVal, newVal) {
+        const x = wall.x, y = wall.y;
+        // hide the static value text temporarily
+        if (wall.valueText) {
+            this.tweens.killTweensOf(wall.valueText);
+            wall.valueText.setAlpha(0);
+        }
+        // guaranteed restore after 800ms regardless of tween outcome
+        this.time.delayedCall(800, () => {
+            if (wall.valueText && wall.valueText.active) {
+                wall.valueText.setText(`${newVal}$`).setAlpha(1);
+            }
+        });
+        // old value flies out to the left
+        const oldTxt = this.add.text(x, y, `${oldVal}$`, {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '22px', fill: '#aaaaaa',
+            stroke: '#000000', strokeThickness: 5
+        }).setOrigin(0.5).setDepth(20);
+        this.tweens.add({
+            targets: oldTxt, x: x - 32, alpha: 0, duration: 260, ease: 'Power2',
+            onComplete: () => oldTxt.destroy()
+        });
+        // arrow + new value slides in from right, bigger font, bright yellow
+        const newTxt = this.add.text(x + 36, y, `→${newVal}$`, {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '27px', fill: '#ffe033',
+            stroke: '#000000', strokeThickness: 5
+        }).setOrigin(0.5).setDepth(20).setAlpha(0);
+        this.tweens.add({
+            targets: newTxt, x, alpha: 1, duration: 250, ease: 'Power2',
+            onComplete: () => {
+                this.tweens.add({
+                    targets: newTxt, scaleX: 1.3, scaleY: 1.3, duration: 140, yoyo: true, ease: 'Power2',
+                    onComplete: () => {
+                        this.tweens.add({
+                            targets: newTxt, alpha: 0, duration: 280, delay: 180, ease: 'Power2',
+                            onComplete: () => newTxt.destroy()
+                        });
+                    }
+                });
+            }
+        });
+    }
+
+    _animateSlotIncomeUpgrade(slot, oldVal, newVal) {
+        const x = slot.cx, y = slot.cy;
+        if (slot.valTxt) slot.valTxt.setAlpha(0);
+        const oldTxt = this.add.text(x, y, `${oldVal}$`, {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '22px', fill: '#aaaaaa',
+            stroke: '#000000', strokeThickness: 5
+        }).setOrigin(0.5).setDepth(20);
+        this.tweens.add({
+            targets: oldTxt, x: x - 32, alpha: 0, duration: 260, ease: 'Power2',
+            onComplete: () => oldTxt.destroy()
+        });
+        const newTxt = this.add.text(x + 36, y, `→${newVal}$`, {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '27px', fill: '#ffe033',
+            stroke: '#000000', strokeThickness: 5
+        }).setOrigin(0.5).setDepth(20).setAlpha(0);
+        this.tweens.add({
+            targets: newTxt, x, alpha: 1, duration: 250, ease: 'Power2',
+            onComplete: () => {
+                this.tweens.add({
+                    targets: newTxt, scaleX: 1.3, scaleY: 1.3, duration: 140, yoyo: true, ease: 'Power2',
+                    onComplete: () => {
+                        if (slot.valTxt) slot.valTxt.setAlpha(1);
+                        this.tweens.add({
+                            targets: newTxt, alpha: 0, duration: 280, delay: 180, ease: 'Power2',
+                            onComplete: () => newTxt.destroy()
+                        });
+                    }
+                });
+            }
+        });
+    }
+
+    _getMaxWallIncome() {
+        let max = 3;
+        this.wallsGroup.children.iterate(w => { if (w && w.incomeValue > max) max = w.incomeValue; });
+        this.wallHand.forEach(item => { if (item && item.incomeValue > max) max = item.incomeValue; });
+        return max;
+    }
+
+    _genWallItem(types, withBonus = true) {
+        const type = Phaser.Math.RND.pick(types);
+        let incomeValue = Phaser.Math.Between(1, 3);
+        let bonus = false;
+        if (withBonus && Math.random() < 0.25) {
+            const maxIncome = this._getMaxWallIncome();
+            const bonusMax = Math.max(5, Math.floor(maxIncome / 2));
+            incomeValue = Phaser.Math.Between(Math.max(4, Math.ceil(bonusMax * 0.4)), bonusMax);
+            bonus = true;
+        }
+        return { type, incomeValue, bonus };
+    }
+
+    _showBonusMessage(count) {
+        const msg = count > 1 ? `🎉 ${count}x БОНУС!` : '🎉 УРА! БОНУС!';
+        const txt = this.add.text(380, 540, msg, {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '34px', fill: '#ffe033',
+            stroke: '#000000', strokeThickness: 7,
+            shadow: { offsetX: 0, offsetY: 2, color: '#cc6600', blur: 10, fill: true }
+        }).setOrigin(0.5).setDepth(30);
+        this.tweens.add({
+            targets: txt, y: 490, scaleX: 1.18, scaleY: 1.18,
+            duration: 320, ease: 'Back.easeOut',
+            onComplete: () => {
+                this.tweens.add({
+                    targets: txt, alpha: 0, duration: 700, delay: 900,
+                    onComplete: () => txt.destroy()
+                });
+            }
+        });
+    }
+
+    _lerpColor(c1, c2, t) {
+        const r1 = (c1 >> 16) & 0xff, g1 = (c1 >> 8) & 0xff, b1 = c1 & 0xff;
+        const r2 = (c2 >> 16) & 0xff, g2 = (c2 >> 8) & 0xff, b2 = c2 & 0xff;
+        return ((Math.round(r1 + (r2 - r1) * t) << 16) | (Math.round(g1 + (g2 - g1) * t) << 8) | Math.round(b1 + (b2 - b1) * t));
+    }
+
+    _darkenColor(c, factor) {
+        const r = Math.round(((c >> 16) & 0xff) * factor);
+        const g = Math.round(((c >> 8) & 0xff) * factor);
+        const b = Math.round((c & 0xff) * factor);
+        return (r << 16) | (g << 8) | b;
+    }
+
+    _incomeToColors(val) {
+        const t = Math.min(1, (val - 1) / 99);
+        const stops = [
+            [0, 0x00aaff, 0x003366],
+            [0.2, 0x00dd55, 0x004422],
+            [0.45, 0xddee00, 0x556600],
+            [0.6, 0xffaa00, 0x884400],
+            [0.8, 0xff2200, 0x770000],
+            [1.0, 0xdd00ff, 0x550077],
+        ];
+        let s = stops.length - 2;
+        for (let i = 0; i < stops.length - 1; i++) { if (t <= stops[i + 1][0]) { s = i; break; } }
+        const seg = (stops[s + 1][0] - stops[s][0]) < 0.0001 ? 0 : (t - stops[s][0]) / (stops[s + 1][0] - stops[s][0]);
+        return {
+            top: this._lerpColor(stops[s][1], stops[s + 1][1], seg),
+            bot: this._lerpColor(stops[s][2], stops[s + 1][2], seg)
+        };
     }
 
     // ──── Physics ────
 
-    update() {
-        const r = 18;
-        const minX=this.fieldOffsetX+r,  maxX=this.fieldOffsetX+this.fieldSize-r;
-        const minY=this.fieldOffsetY+r,  maxY=this.fieldOffsetY+this.fieldSize-r;
+    _getWallCollisionRects(wall) {
+        const D = this.BALL_R * 2;
+        const wx = wall.x, wy = wall.y;
+        if (wall.wallType === 'tDown') {
+            return [
+                { x: wx, y: wy - D / 2, hw: wall.width / 2, hh: D / 2 },
+                { x: wx, y: wy + D / 2, hw: D / 2, hh: D / 2 }
+            ];
+        } else if (wall.wallType === 'tUp') {
+            return [
+                { x: wx, y: wy - D / 2, hw: D / 2, hh: D / 2 },
+                { x: wx, y: wy + D / 2, hw: wall.width / 2, hh: D / 2 }
+            ];
+        } else if (wall.wallType === 'tLeft') {
+            return [
+                { x: wx - D / 2, y: wy, hw: D / 2, hh: D / 2 },
+                { x: wx + D / 2, y: wy, hw: D / 2, hh: wall.height / 2 }
+            ];
+        } else if (wall.wallType === 'tRight') {
+            return [
+                { x: wx - D / 2, y: wy, hw: D / 2, hh: wall.height / 2 },
+                { x: wx + D / 2, y: wy, hw: D / 2, hh: D / 2 }
+            ];
+        }
+        return [{ x: wx, y: wy, hw: wall.width / 2, hh: wall.height / 2 }];
+    }
 
-        this._trailGraphics.clear();
+    update() {
+        const r = Math.round(this.BALL_R * 0.9);
+        const minX = this.fieldOffsetX + r, maxX = this.fieldOffsetX + this.fieldSize - r;
+        const minY = this.fieldOffsetY + r, maxY = this.fieldOffsetY + this.fieldSize - r;
+
+        this._ballOverlayGfx.clear();
 
         this.ballsGroup.children.iterate(ball => {
             if (!ball || !ball.body) return;
             if (!ball.currentSpeed) ball.currentSpeed = ball.bounceSpeed;
 
-            // trail
-            if (!ball._trail) ball._trail = [];
-            ball._trail.push({ x: ball.x, y: ball.y });
-            if (ball._trail.length > 18) ball._trail.shift();
-            ball._trail.forEach((pt, i) => {
-                const ratio = (i+1) / ball._trail.length;
-                this._trailGraphics.fillStyle(0x999999, ratio*0.5);
-                this._trailGraphics.fillCircle(pt.x, pt.y, r*ratio*0.55);
-            });
+            if (ball._multLabel && ball._multLabel.active) ball._multLabel.setPosition(ball.x, ball.y);
+
+            // emit trail particles at exact ball position
+            if (ball.trail) ball.trail.explode(2, ball.x, ball.y);
+            // specular highlight
+            this._ballOverlayGfx.fillStyle(0xffffff, 0.55);
+            this._ballOverlayGfx.fillCircle(ball.x - r * 0.28, ball.y - r * 0.3, r * 0.27);
 
             // boundaries
-            const _snd = () => { const now=this.time.now; if(now-this._lastHitSound>80){this._lastHitSound=now;this.playSound('hit');} };
+            const _snd = () => { const now = this.time.now; if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('hit'); } };
             if (ball.x < minX) {
                 ball.setX(minX); ball.body.setVelocityX(Math.abs(ball.body.velocity.x));
-                ball.currentSpeed=Math.min(ball.currentSpeed*1.1,ball.bounceSpeed*2.0);
-                this._squishBall(ball,0.55,1.45); _snd();
+                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                this._squishBall(ball, 0.55, 1.45); _snd();
             } else if (ball.x > maxX) {
                 ball.setX(maxX); ball.body.setVelocityX(-Math.abs(ball.body.velocity.x));
-                ball.currentSpeed=Math.min(ball.currentSpeed*1.1,ball.bounceSpeed*2.0);
-                this._squishBall(ball,0.55,1.45); _snd();
+                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                this._squishBall(ball, 0.55, 1.45); _snd();
             }
             if (ball.y < minY) {
                 ball.setY(minY); ball.body.setVelocityY(Math.abs(ball.body.velocity.y));
-                ball.currentSpeed=Math.min(ball.currentSpeed*1.1,ball.bounceSpeed*2.0);
-                this._squishBall(ball,1.45,0.55); _snd();
+                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                this._squishBall(ball, 1.45, 0.55); _snd();
             } else if (ball.y > maxY) {
                 ball.setY(maxY); ball.body.setVelocityY(-Math.abs(ball.body.velocity.y));
-                ball.currentSpeed=Math.min(ball.currentSpeed*1.1,ball.bounceSpeed*2.0);
-                this._squishBall(ball,1.45,0.55); _snd();
+                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                this._squishBall(ball, 1.45, 0.55); _snd();
             }
 
-            // wall collision
+            // wall collision — T-walls use 2 rects, others 1
             this.wallsGroup.children.iterate(wall => {
                 if (!wall) return;
-                const hw=wall.width/2, hh=wall.height/2;
-                const cx=Phaser.Math.Clamp(ball.x, wall.x-hw, wall.x+hw);
-                const cy=Phaser.Math.Clamp(ball.y, wall.y-hh, wall.y+hh);
-                const dx=ball.x-cx, dy=ball.y-cy, distSq=dx*dx+dy*dy;
-                if (distSq >= r*r) return;
-                const dist=distSq>0?Math.sqrt(distSq):0;
-                const nx=dist>0?dx/dist:0, ny=dist>0?dy/dist:-1;
-                ball.setPosition(ball.x+nx*(r-dist), ball.y+ny*(r-dist));
-                const vel=ball.body.velocity, dot=vel.x*nx+vel.y*ny;
-                if (dot < 0) {
-                    ball.body.setVelocity(vel.x-2*dot*nx, vel.y-2*dot*ny);
-                    const isH=Math.abs(ny)>Math.abs(nx);
-                    this._squishBall(ball, isH?1.45:0.55, isH?0.55:1.45);
+                const rects = this._getWallCollisionRects(wall);
+                let hitNx = 0, hitNy = -1, hitOverlap = 0, didHit = false;
+                for (const rect of rects) {
+                    const cx = Phaser.Math.Clamp(ball.x, rect.x - rect.hw, rect.x + rect.hw);
+                    const cy = Phaser.Math.Clamp(ball.y, rect.y - rect.hh, rect.y + rect.hh);
+                    const dx = ball.x - cx, dy = ball.y - cy, distSq = dx * dx + dy * dy;
+                    if (distSq >= r * r) continue;
+                    const dist = distSq > 0 ? Math.sqrt(distSq) : 0;
+                    hitNx = dist > 0 ? dx / dist : 0; hitNy = dist > 0 ? dy / dist : -1;
+                    hitOverlap = r - dist; didHit = true; break;
                 }
-                const now=this.time.now;
-                if (now-(wall.lastHit||0) >= 35) {
-                    wall.lastHit=now; this.money+=wall.incomeValue;
-                    ball.currentSpeed=Math.min(ball.currentSpeed*1.35,ball.bounceSpeed*2.0);
-                    if (now-this._lastHitSound>80){this._lastHitSound=now;this.playSound('wallhit');}
+                if (!didHit) return;
+                ball.setPosition(ball.x + hitNx * hitOverlap, ball.y + hitNy * hitOverlap);
+                const vel = ball.body.velocity, dot = vel.x * hitNx + vel.y * hitNy;
+                if (dot < 0) {
+                    ball.body.setVelocity(vel.x - 2 * dot * hitNx, vel.y - 2 * dot * hitNy);
+                    const isH = Math.abs(hitNy) > Math.abs(hitNx);
+                    this._squishBall(ball, isH ? 1.45 : 0.55, isH ? 0.55 : 1.45);
+                }
+                const now = this.time.now;
+                if (now - (wall.lastHit || 0) >= 16) {
+                    const _mult = ball.multiplier || 1;
+                    const _earned = wall.incomeValue * _mult;
+                    wall.lastHit = now; this.money += _earned; this.totalEarned += _earned;
+                    this._incomeWindow.push({ t: now, v: _earned });
+                    wall.wallTotalEarned = (wall.wallTotalEarned || 0) + _earned;
+                    (wall._wallIncWin = wall._wallIncWin || []).push({ t: now, v: _earned });
+                    ball.currentSpeed = Math.min(ball.currentSpeed * 1.35, ball.bounceSpeed * 2.0);
+                    if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('wallhit'); }
+                    if (wall.valueText && wall.valueText.active) { this.tweens.killTweensOf(wall.valueText); this.tweens.add({ targets: wall.valueText, scaleX: 1.4, scaleY: 1.4, duration: 75, yoyo: true, ease: 'Power2', onComplete: () => { if (wall.valueText && wall.valueText.active) wall.valueText.setScale(1); } }); }
                     this.updateUI();
                 }
-                if (now-(wall.lastFloat||0) >= 180) {
-                    wall.lastFloat=now;
-                    this.showFloatingText(ball.x, ball.y-28, `+$${wall.incomeValue}`);
+                if (wall.incomeValue > 0 && now - (wall.lastFloat || 0) >= 180) {
+                    wall.lastFloat = now;
+                    const _fv = wall.incomeValue * (ball.multiplier || 1);
+                    this.showFloatingText(wall.x, wall.y, `${_fv}$`, _fv);
+                }
+                // Special wall effects (editor walls)
+                if (wall.specialType && didHit && now - (wall._lastSpecial || 0) >= 1500) {
+                    wall._lastSpecial = now;
+                    if (wall.specialType === 'trap') {
+                        const loss = wall.trapDamage || 5;
+                        this.money = Math.max(0, this.money - loss);
+                        wall.totalTaken = (wall.totalTaken || 0) + loss;
+                        (wall._trapWindow = wall._trapWindow || []).push({ t: now, v: loss });
+                        this.showFloatingText(wall.x, wall.y, `-${loss}$`, -1);
+                        this.updateUI();
+                    } else if (wall.specialType === 'slow') {
+                        ball._slowUntil = this.time.now + 1500;
+                    }
                 }
             });
 
             // decay
             if (ball.currentSpeed > ball.bounceSpeed)
-                ball.currentSpeed = Math.max(ball.currentSpeed*0.985, ball.bounceSpeed);
-            const vel=ball.body.velocity, spd=Math.sqrt(vel.x*vel.x+vel.y*vel.y);
-            if (spd > 0) ball.body.setVelocity(vel.x/spd*ball.currentSpeed, vel.y/spd*ball.currentSpeed);
+                ball.currentSpeed = Math.max(ball.currentSpeed * 0.985, ball.bounceSpeed);
+            const vel = ball.body.velocity, spd = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+            const _isSlowed = ball._slowUntil && this.time.now < ball._slowUntil;
+            if (spd > 0) { const ts = (this._physicsSpeedMult || 1) * (_isSlowed ? 0.3 : 1); ball.body.setVelocity(vel.x / spd * ball.currentSpeed * ts, vel.y / spd * ball.currentSpeed * ts); }
+            if (_isSlowed && !ball._isTinted) {
+                ball._isTinted = true;
+                ball._slowAngle = 0;
+                ball._slowGfx = this.add.graphics().setDepth(2.5);
+                ball._slowTween = this.tweens.addCounter({
+                    from: 0, to: 100, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+                    onUpdate: tw => {
+                        if (!ball || !ball.active) return;
+                        const t = tw.getValue() / 100;
+                        ball.setFillStyle(Phaser.Display.Color.GetColor(Math.round(255 * (1 - t)), Math.round(255 - 204 * t), 255));
+                    }
+                });
+                const _br = this.BALL_R;
+                ball._slowEmitter = this.add.particles(ball.x, ball.y, 'star', {
+                    lifespan: 450,
+                    frequency: 55,
+                    quantity: 2,
+                    blendMode: 'ADD',
+                    gravityY: -18,
+                    speedX: { min: -45, max: 45 },
+                    speedY: { min: -45, max: 45 },
+                    scale: { start: 0.75, end: 0.05 },
+                    rotate: { start: 0, end: 360 },
+                    tint: [0x88ccff, 0xffffff, 0x00aaff, 0xaaddff],
+                    emitZone: [{
+                        quantity: 8, type: 'edge', total: 8, yoyo: false,
+                        source: new Phaser.Geom.Ellipse(0, 0, _br * 2 + 8, _br * 2 + 8)
+                    }]
+                }).setDepth(2.4);
+            } else if (!_isSlowed && ball._isTinted) {
+                ball._isTinted = false;
+                if (ball._slowTween) { try { ball._slowTween.stop(); } catch (e) { } ball._slowTween = null; }
+                if (ball._slowGfx) { try { ball._slowGfx.destroy(); } catch (e) { } ball._slowGfx = null; }
+                if (ball._slowEmitter) { try { ball._slowEmitter.destroy(); } catch (e) { } ball._slowEmitter = null; }
+                ball.setFillStyle(0xf01cff);
+                ball.setStrokeStyle(1, 0xf8ae0f);
+            }
+            if (_isSlowed && ball._slowEmitter && ball._slowEmitter.active) {
+                ball._slowEmitter.setPosition(ball.x, ball.y);
+            }
+            if (_isSlowed && ball._slowGfx && ball._slowGfx.active) {
+                ball._slowAngle = (ball._slowAngle || 0) + 0.08;
+                const _R = Math.round(this.BALL_R * 0.9) + 4;
+                ball._slowGfx.clear();
+                ball._slowGfx.lineStyle(1.5, 0x88ddff, 0.5);
+                ball._slowGfx.strokeCircle(ball.x, ball.y, _R);
+                ball._slowGfx.lineStyle(2.5, 0xffffff, 0.9);
+                ball._slowGfx.beginPath();
+                ball._slowGfx.arc(ball.x, ball.y, _R, ball._slowAngle, ball._slowAngle + Math.PI * 1.2, false);
+                ball._slowGfx.strokePath();
+                for (let _fi = 0; _fi < 4; _fi++) {
+                    const _fAng = ball._slowAngle * 0.6 + (_fi / 4) * Math.PI * 2;
+                    const _fR = _R + 5 + Math.sin(ball._slowAngle * 1.5 + _fi) * 3;
+                    const _fx = ball.x + Math.cos(_fAng) * _fR, _fy = ball.y + Math.sin(_fAng) * _fR;
+                    const _fs = 3;
+                    ball._slowGfx.lineStyle(1.5, 0xaaddff, 0.85);
+                    ball._slowGfx.lineBetween(_fx - _fs, _fy, _fx + _fs, _fy);
+                    ball._slowGfx.lineBetween(_fx, _fy - _fs, _fx, _fy + _fs);
+                    ball._slowGfx.lineStyle(1, 0xffffff, 0.65);
+                    ball._slowGfx.lineBetween(_fx - _fs * 0.7, _fy - _fs * 0.7, _fx + _fs * 0.7, _fy + _fs * 0.7);
+                    ball._slowGfx.lineBetween(_fx + _fs * 0.7, _fy - _fs * 0.7, _fx - _fs * 0.7, _fy + _fs * 0.7);
+                }
+            }
+
+            // Zone crossing detection
+            if (this.zones && this.zones.length) {
+                this.zones.forEach(zone => {
+                    if (!zone._ballsInside) zone._ballsInside = new Set();
+                    const _zIn = ball.x >= zone.x - zone.hw && ball.x <= zone.x + zone.hw
+                        && ball.y >= zone.y - zone.hh && ball.y <= zone.y + zone.hh;
+                    if (_zIn && !zone._ballsInside.has(ball)) {
+                        zone._incomeAccum = (zone._incomeAccum || 0) + 0.1;
+                        const _zt = this.add.text(zone.x, zone.y - 8, '+0.1$/с', {
+                            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+                            fontSize: '14px', fill: '#bbcc44', stroke: '#111100', strokeThickness: 3
+                        }).setOrigin(0.5).setDepth(19).setAlpha(0.85);
+                        this.tweens.add({
+                            targets: _zt, y: zone.y - 30, alpha: 0, duration: 800, ease: 'Power2',
+                            onComplete: () => _zt.destroy()
+                        });
+                    }
+                    if (_zIn) zone._ballsInside.add(ball); else zone._ballsInside.delete(ball);
+                });
+            }
 
             if (ball.body.speed < 1) {
                 ball.currentSpeed = ball.bounceSpeed;
-                const a=Phaser.Math.DegToRad(Phaser.Math.Between(25,65));
-                const sx=Phaser.Math.RND.pick([-1,1]), sy=Phaser.Math.RND.pick([-1,1]);
-                ball.body.setVelocity(sx*Math.cos(a)*ball.bounceSpeed, sy*Math.sin(a)*ball.bounceSpeed);
+                const a = Phaser.Math.DegToRad(Phaser.Math.Between(25, 65));
+                const sx = Phaser.Math.RND.pick([-1, 1]), sy = Phaser.Math.RND.pick([-1, 1]);
+                ball.body.setVelocity(sx * Math.cos(a) * ball.bounceSpeed, sy * Math.sin(a) * ball.bounceSpeed);
             }
         });
+    }
+
+    _showWallTooltip(wall) {
+        if (!this._wallTooltipGfx || this._carryingFieldWall || this.draggingNewWall) return;
+        if (wall.specialType === 'slow') return;
+        const isTrap = wall.specialType === 'trap';
+        const tx = this.fieldOffsetX + this.fieldSize + 10;
+        const ty = Math.max(this.fieldOffsetY + 4, Math.min(wall.y - 31, this.fieldOffsetY + this.fieldSize - 66));
+        this._wallTooltipGfx.setPosition(tx, ty).setVisible(true);
+        this._wallTooltipIps.setPosition(tx + 8, ty + 10).setVisible(true);
+        this._wallTooltipTotal.setPosition(tx + 8, ty + 36).setVisible(true);
+        const update = () => {
+            if (!wall || !wall.active || !this._wallTooltipGfx || !this._wallTooltipGfx.visible) return;
+            const n = this.time.now;
+            if (isTrap) {
+                wall._trapWindow = (wall._trapWindow || []).filter(e => n - e.t < 3000);
+                const ps = wall._trapWindow.reduce((a, e) => a + e.v, 0) / 3;
+                this._wallTooltipIps.setText(`💀 ${Math.round(ps).toLocaleString()}$/сек`);
+                this._wallTooltipTotal.setText(`🩸 ${(wall.totalTaken || 0).toLocaleString()}$ забрано`);
+            } else {
+                wall._wallIncWin = (wall._wallIncWin || []).filter(e => n - e.t < 3000);
+                const ps = wall._wallIncWin.reduce((a, e) => a + e.v, 0) / 3;
+                this._wallTooltipIps.setText(`⚡ ${Math.round(ps).toLocaleString()}$/сек`);
+                this._wallTooltipTotal.setText(`💰 ${(wall.wallTotalEarned || 0).toLocaleString()}$ всего`);
+            }
+        };
+        update();
+        if (this._wallTooltipTimer) this._wallTooltipTimer.destroy();
+        this._wallTooltipTimer = this.time.addEvent({ delay: 250, loop: true, callback: update });
+    }
+
+    _hideWallTooltip() {
+        if (this._wallTooltipGfx) this._wallTooltipGfx.setVisible(false);
+        if (this._wallTooltipIps) this._wallTooltipIps.setVisible(false);
+        if (this._wallTooltipTotal) this._wallTooltipTotal.setVisible(false);
+        if (this._wallTooltipTimer) { this._wallTooltipTimer.destroy(); this._wallTooltipTimer = null; }
+    }
+
+    _showZoneTooltip(zone) {
+        if (!this._wallTooltipGfx) return;
+        const tx = this.fieldOffsetX + this.fieldSize + 10;
+        const ty = Math.max(this.fieldOffsetY + 4, Math.min(zone.y - 31, this.fieldOffsetY + this.fieldSize - 66));
+        this._wallTooltipGfx.setPosition(tx, ty).setVisible(true);
+        this._wallTooltipIps.setPosition(tx + 8, ty + 10).setVisible(true);
+        this._wallTooltipTotal.setPosition(tx + 8, ty + 36).setVisible(true);
+        const update = () => {
+            if (!this._wallTooltipGfx || !this._wallTooltipGfx.visible) return;
+            this._wallTooltipIps.setText(`◆ ${(zone._incomeAccum || 0).toFixed(1)}$/с`);
+            this._wallTooltipTotal.setText(`💰 ${Math.round(zone.totalEarned || 0).toLocaleString()}$ всего`);
+        };
+        update();
+        if (this._wallTooltipTimer) this._wallTooltipTimer.destroy();
+        this._wallTooltipTimer = this.time.addEvent({ delay: 250, loop: true, callback: update });
+    }
+
+    _scheduleZoneRelocation() {
+        if (!this.zones || !this.zones.length) return;
+        const delay = Phaser.Math.Between(15000, 20000);
+        this.time.delayedCall(delay, () => {
+            if (this.scene.isActive()) this._relocateZones();
+        });
+    }
+
+    _relocateZones() {
+        if (!this.zones || !this.zones.length || !this.scene.isActive()) return;
+        const count = this.zones.length;
+        const D = this.BALL_R * 2;
+        const objs = this.zones.flatMap(z => (z._allObjs || []).filter(o => o && o.active));
+        this.tweens.add({
+            targets: objs,
+            alpha: 0,
+            duration: 700,
+            ease: 'Power2',
+            onComplete: () => {
+                objs.forEach(o => { try { if (o && o.active) o.destroy(); } catch (e) { } });
+                this.zones = [];
+                const positions = this._randomZonePositions(count, D);
+                positions.forEach(p => this._createZone(p.x, p.y, D, D));
+                const newObjs = this.zones.flatMap(z => (z._allObjs || []).filter(o => o && o.active));
+                newObjs.forEach(o => o.setAlpha(0));
+                this.tweens.add({
+                    targets: newObjs,
+                    alpha: 1,
+                    duration: 700,
+                    ease: 'Power2',
+                    onComplete: () => {
+                        this.zones.forEach(z => { if (z.ring && z.ring.active) z.ring.setAlpha(0.6); });
+                    }
+                });
+                this._scheduleZoneRelocation();
+            }
+        });
+    }
+
+    _randomZonePositions(count, D) {
+        const fx = this.fieldOffsetX, fy = this.fieldOffsetY;
+        const cols = Math.floor(this.fieldSize / D);
+        const rows = Math.floor(this.fieldSize / D);
+        const occupied = new Set();
+        this.wallsGroup.getChildren().forEach(w => {
+            occupied.add(`${Math.round(w.x)}_${Math.round(w.y)}`);
+        });
+        const candidates = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const x = Math.round(fx + D / 2 + c * D);
+                const y = Math.round(fy + D / 2 + r * D);
+                if (!occupied.has(`${x}_${y}`)) candidates.push({ x, y });
+            }
+        }
+        Phaser.Utils.Array.Shuffle(candidates);
+        return candidates.slice(0, Math.min(count, candidates.length));
     }
 
     // ──── UI update ────
 
     updateUI() {
-        this.moneyText.setText(`$ ${this.money.toLocaleString()}`);
-        this.goalText.setText(`🏆 ${this.targetMoney.toLocaleString()}`);
-        this.incomeText.setText(`Прокачка: +${this.incomeBase} ко всем стенам`);
+        this.moneyText.setText(`${this.money.toLocaleString()}$`);
+        const ballCount = this.ballsGroup ? this.ballsGroup.getLength() : 0;
+        if (this.ballCountText) this.ballCountText.setText(`${ballCount} ${ballCount === 1 ? 'шар' : ballCount < 5 ? 'шара' : 'шаров'}`);
+        const now2 = this.time ? this.time.now : 0;
+        if (this._incomeWindow) {
+            this._incomeWindow = this._incomeWindow.filter(e => now2 - e.t < 3000);
+            const ips = this._incomeWindow.reduce((a, e) => a + e.v, 0) / 3;
+            if (this.incomePerSecText) this.incomePerSecText.setText(`${Math.round(ips).toLocaleString()}$/сек`);
+        }
 
-        // progress bar
-        const ratio = Math.min(1, this.money / this.targetMoney);
-        const bx=200, by=13, bw=355, bh=14;
+        const { _pbx: pbx, _pby: pby, _pbw: pbw, _pbh: pbh } = this;
         this._progressGfx.clear();
-        this._progressGfx.fillStyle(0xb0c0cc); this._progressGfx.fillRect(bx, by, bw, bh);
-        const fc = ratio<0.5 ? 0x44cc77 : ratio<0.85 ? 0xccaa22 : 0xee4422;
-        this._progressGfx.fillStyle(fc); this._progressGfx.fillRect(bx, by, Math.max(4, bw*ratio), bh);
-        this._progressGfx.lineStyle(1, 0x778899); this._progressGfx.strokeRect(bx, by, bw, bh);
+        this._progressGfx.fillStyle(0x070e16, 1);
+        this._progressGfx.fillRoundedRect(pbx, pby, pbw, pbh, 6);
+
+        if (this.infiniteMode) {
+            // Infinite mode: full bar in blue
+            this._progressGfx.fillStyle(0x1155cc, 0.22);
+            this._progressGfx.fillRoundedRect(pbx - 1, pby - 1, pbw + 2, pbh + 2, 7);
+            this._progressGfx.fillStyle(0x2266ff, 1);
+            this._progressGfx.fillRoundedRect(pbx, pby, pbw, pbh, 6);
+            this._progressGfx.lineStyle(1, 0x2255aa, 0.7);
+            this._progressGfx.strokeRoundedRect(pbx, pby, pbw, pbh, 6);
+            this.barText.setText(`${this.totalEarned.toLocaleString()}$ заработано`);
+        } else {
+            const ratio = Math.min(1, this.totalEarned / this.targetMoney);
+            if (ratio > 0) {
+                const fw = Math.max(10, pbw * ratio);
+                const fc = ratio < 0.5 ? 0x18b84a : ratio < 0.85 ? 0xc8a020 : 0xdd2f0f;
+                this._progressGfx.fillStyle(fc, 0.22);
+                this._progressGfx.fillRoundedRect(pbx - 1, pby - 1, fw + 2, pbh + 2, 7);
+                this._progressGfx.fillStyle(fc, 1);
+                this._progressGfx.fillRoundedRect(pbx, pby, fw, pbh, 6);
+            }
+            this._progressGfx.lineStyle(1, 0x1e3d6a, 0.7);
+            this._progressGfx.strokeRoundedRect(pbx, pby, pbw, pbh, 6);
+            this.barText.setText(`${this.totalEarned.toLocaleString()}$ / ${this.targetMoney.toLocaleString()}$`);
+            if (this.totalEarned >= this.targetMoney && !this.gameWon) this.winGame();
+        }
 
         this.updateButton(this.buttonBall, this.ballCost);
         this.updateButton(this.buttonWallPack, this.wallPackCost);
         this.updateButton(this.buttonIncome, this.incomeCost);
-        if (this.money >= this.targetMoney && !this.gameWon) this.winGame();
     }
 
     updateButton(button, cost) {
         const ok = this.money >= cost;
-        button.bg.fillColor = ok ? 0x3366cc : 0x7788aa;
-        button.lbTxt.setColor(ok ? '#ffffff' : '#aabbcc');
-        button.emTxt.setAlpha(ok ? 1 : 0.5);
-        button.ctTxt.setText(`$${cost.toLocaleString()}`).setColor(ok ? '#ffdd88' : '#889977');
+        button.bg._cost = cost;
+        button.ctTxt.setText(`${cost.toLocaleString()}$`).setColor(ok ? '#ffdd22' : '#ff3333');
     }
 
     winGame() {
-        this.gameWon = true; this.playSound('buy');
-        this.add.rectangle(this.fieldCX, this.fieldCY, 440, 130, 0xfffff0).setStrokeStyle(3, 0xddcc00).setDepth(25);
-        this.add.text(this.fieldCX, this.fieldCY-28, 'Уровень пройден!',
-            { fontSize: '34px', fill: '#aa8800', fontStyle: 'bold' }).setOrigin(0.5).setDepth(26);
-        this.add.text(this.fieldCX, this.fieldCY+18, `Заработано $${this.targetMoney.toLocaleString()}`,
-            { fontSize: '20px', fill: '#445566' }).setOrigin(0.5).setDepth(26);
+        this.gameWon = true;
+        // Clear the normal save — level is complete, start fresh next time
+        try { localStorage.removeItem('bumper_save_normal'); } catch (e) { }
+        this.playSound('win');
+
+        // Dark overlay fade in
+        const overlay = this.add.rectangle(380, 435, 760, 870, 0x000000, 0).setDepth(30);
+        this.tweens.add({ targets: overlay, alpha: 0.62, duration: 700, ease: 'Power2' });
+
+        // Winner panel
+        const panel = this.add.graphics().setDepth(31);
+        panel.fillStyle(0x071420, 0.95); panel.fillRoundedRect(160, 250, 440, 220, 18);
+        panel.lineStyle(3, 0xffdd22, 1); panel.strokeRoundedRect(160, 250, 440, 220, 18);
+
+        const lvl = this.registry.get('level') || 1;
+        this.add.text(380, 295, `УРОВЕНЬ ${lvl} ПРОЙДЕН!`, {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '36px', fill: '#ffdd22', stroke: '#000000', strokeThickness: 6
+        }).setOrigin(0.5).setDepth(32);
+
+        this.add.text(380, 348, `Заработано ${this.targetMoney.toLocaleString()}$`, {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '22px', fill: '#44aaff', stroke: '#000000', strokeThickness: 4
+        }).setOrigin(0.5).setDepth(32);
+
+        const nextLvl = lvl + 1;
+        const goTxt = this.add.text(380, 410, `→ Уровень ${nextLvl}`, {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '28px', fill: '#88ff88', stroke: '#000000', strokeThickness: 5
+        }).setOrigin(0.5).setDepth(32).setAlpha(0);
+        this.time.delayedCall(900, () => {
+            this.tweens.add({ targets: goTxt, alpha: 1, duration: 500, ease: 'Power2' });
+        });
+
+        // Increment level in registry
+        this.registry.set('level', nextLvl);
+
+        // Fireworks
+        this._playWinFireworks();
+
+        // Fade out + return to menu
+        this.time.delayedCall(4200, () => {
+            this.cameras.main.fade(900, 0, 0, 0);
+            this.time.delayedCall(900, () => this.scene.start('StartScene'));
+        });
+    }
+
+    _playWinFireworks() {
+        let count = 0;
+        const fireOne = () => {
+            if (count++ >= 28 || !this.scene.isActive()) return;
+            const x = Phaser.Math.Between(60, 700);
+            const y = Phaser.Math.Between(50, 520);
+            const s = 0.65 + Math.random() * 1.1;
+            this._playSpawnFlash(x, y, s);
+            this.time.delayedCall(Phaser.Math.Between(80, 340), fireOne);
+        };
+        fireOne();
+        this.time.delayedCall(180, () => { let c2 = 0; const f2 = () => { if (c2++ >= 14 || !this.scene.isActive()) return; this._playSpawnFlash(Phaser.Math.Between(60, 700), Phaser.Math.Between(50, 520), 0.5 + Math.random() * 0.9); this.time.delayedCall(Phaser.Math.Between(150, 500), f2); }; f2(); });
+        this.time.delayedCall(600, () => { let c3 = 0; const f3 = () => { if (c3++ >= 10 || !this.scene.isActive()) return; this._playSpawnFlash(Phaser.Math.Between(60, 700), Phaser.Math.Between(50, 520), 0.8 + Math.random() * 1.4); this.time.delayedCall(Phaser.Math.Between(200, 600), f3); }; f3(); });
+    }
+}
+
+class StartScene extends Phaser.Scene {
+    constructor() { super('StartScene'); }
+
+    create() {
+        const W = 760, H = 870;
+        const ch = (n) => '#' + n.toString(16).padStart(6, '0');
+        this.add.rectangle(W / 2, H / 2, W, H, 0x0b1520);
+        const dotGfx = this.add.graphics();
+        dotGfx.fillStyle(0xffffff, 0.025);
+        for (let gx = 30; gx < W; gx += 48)
+            for (let gy = 20; gy < H; gy += 40)
+                dotGfx.fillCircle(gx, gy, 1.5);
+
+        this.add.text(W / 2, H * 0.23, 'BUMPER', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '88px', fill: '#18ee50', stroke: '#010e05', strokeThickness: 10
+        }).setOrigin(0.5);
+        this.add.text(W / 2, H * 0.23 + 90, 'БИЗНЕС', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '50px', fill: '#44aaff', stroke: '#010e05', strokeThickness: 7
+        }).setOrigin(0.5);
+        this.add.text(W / 2, H * 0.23 + 148, 'Строй стены — зарабатывай деньги', {
+            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
+            fontSize: '20px', fill: '#aaaacc', stroke: '#000000', strokeThickness: 3
+        }).setOrigin(0.5);
+
+        const level = this.registry.get('level') || 1;
+        let hasNormalSave = false, hasInfSave = false;
+        try { hasNormalSave = !!localStorage.getItem('bumper_save_normal'); } catch (e) { }
+        try { hasInfSave = !!localStorage.getItem('bumper_save_infinite'); } catch (e) { }
+
+        // 3 fixed buttons — normal and infinite each auto-resume their own save
+        const btnDefs = [
+            {
+                label: 'ИГРАТЬ',
+                sub: '(выбрать уровень)',
+                clr: 0x44ff88, bg: 0x0d2818, bgH: 0x1a4828,
+                action: () => this.scene.start('LevelSelectScene'), pulse: true
+            },
+            {
+                label: '∞  БЕСКОНЕЧНЫЙ',
+                sub: hasInfSave ? '(продолжить)' : null,
+                clr: 0x44aaff, bg: 0x07101f, bgH: 0x0e1f40,
+                action: () => this.scene.start('MainScene', { mode: 'infinite' })
+            },
+            {
+                label: 'УРОВНИ',
+                sub: null,
+                clr: 0xffcc44, bg: 0x1a1500, bgH: 0x2a2200,
+                action: () => this.scene.start('LevelSelectScene')
+            }
+        ];
+
+        const bw = 290, bh = 64, bx = W / 2 - bw / 2;
+        let cy = 490;
+
+        btnDefs.forEach(def => {
+            const by = cy;
+            const gfx = this.add.graphics();
+            const draw = (hov) => {
+                gfx.clear();
+                gfx.fillStyle(hov ? def.bgH : def.bg, 1);
+                gfx.fillRoundedRect(bx, by - bh / 2, bw, bh, 12);
+                gfx.lineStyle(2.5, def.clr, hov ? 1 : 0.75);
+                gfx.strokeRoundedRect(bx, by - bh / 2, bw, bh, 12);
+            };
+            draw(false);
+            const mainY = def.sub ? by - 8 : by;
+            const fs = def.label.length > 15 ? '26px' : '34px';
+            const txt = this.add.text(W / 2, mainY, def.label, {
+                fontFamily: "'Impact', 'Arial Black', sans-serif",
+                fontSize: fs, fill: ch(def.clr), stroke: '#010e05', strokeThickness: 4
+            }).setOrigin(0.5);
+            if (def.sub) this.add.text(W / 2, by + 18, def.sub, {
+                fontFamily: "'Arial'", fontSize: '13px', fill: ch(def.clr), alpha: 0.7
+            }).setOrigin(0.5).setAlpha(0.6);
+            const hit = this.add.rectangle(W / 2, by, bw, bh, 0, 0).setInteractive({ useHandCursor: true });
+            hit.on('pointerover', () => draw(true));
+            hit.on('pointerout', () => draw(false));
+            hit.on('pointerdown', def.action);
+            if (def.pulse) this.tweens.add({ targets: txt, scaleX: 1.05, scaleY: 1.05, duration: 750, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+            cy += bh + 12;
+        });
+    }
+}
+
+class EditorScene extends Phaser.Scene {
+    constructor() { super('EditorScene'); }
+
+    init(data) {
+        this.levelNum = (data && data.levelNum) || null;
+    }
+
+    create() {
+        const W = 760, H = 870;
+        const D = 36; // cell size (BALL_R*2 = 18*2)
+        const FOX = 184, FOY = 102, FS = 392;
+        const COLS = Math.floor(FS / D), ROWS = Math.floor(FS / D); // 10
+        const GSX = FOX + Math.floor((FS - COLS * D) / 2); // grid start x = 200
+        const GSY = FOY + Math.floor((FS - ROWS * D) / 2); // grid start y = 118
+
+        this.D = D; this.COLS = COLS; this.ROWS = ROWS; this.GSX = GSX; this.GSY = GSY;
+        this.cells = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+        this.currentTool = 'boundary';
+        this.currentBoundaryColor = 0x888888;
+        this.isPainting = false;
+
+        // Field background
+        const fieldGfx = this.add.graphics();
+        fieldGfx.fillStyle(0x0d0820, 1); fieldGfx.fillRect(FOX, FOY, FS, FS);
+        fieldGfx.lineStyle(3, 0x8855dd, 1); fieldGfx.strokeRect(FOX, FOY, FS, FS);
+
+        // Grid lines
+        const gridGfx = this.add.graphics();
+        gridGfx.lineStyle(1, 0x334466, 0.5);
+        for (let c = 0; c <= COLS; c++) gridGfx.lineBetween(GSX + c * D, GSY, GSX + c * D, GSY + ROWS * D);
+        for (let r = 0; r <= ROWS; r++) gridGfx.lineBetween(GSX, GSY + r * D, GSX + COLS * D, GSY + r * D);
+
+        // Cell render graphics
+        this._cellGfx = this.add.graphics().setDepth(2);
+
+        // Sidebar background
+        const sideX = FOX + FS + 8;
+        this.add.rectangle(sideX + 74, H / 2, 148, H, 0x0e1a27).setDepth(1);
+
+        // Title
+        const edTitle = this.levelNum ? `РЕД. УР. ${this.levelNum}` : 'РЕДАКТОР';
+        this.add.text(W / 2 - 60, FOY - 26, edTitle, { fontFamily: "'Impact'", fontSize: '28px', fill: '#ffcc44', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(2);
+
+        // Tool palette
+        const tools = [
+            { key: 'boundary', label: 'СТЕНА', color: 0x888888, desc: 'Препятствие' },
+            { key: 'trap', label: 'ЛОВУШКА', color: 0xff3333, desc: '-деньги' },
+            { key: 'slow', label: 'ЛЁД', color: 0x3366ff, desc: 'Замедление' },
+            { key: 'zone', label: 'ЗОНА', color: 0x00ddaa, desc: 'Пасс. доход' },
+            { key: 'erase', label: 'СТЕРЕТЬ', color: 0x444444, desc: '' },
+        ];
+        const tBtnW = 130, tBtnH = 44, tBtnX = sideX + 2;
+        let tY = FOY + 16;
+        this._toolBtns = {};
+        tools.forEach(t => {
+            const by = tY;
+            const g = this.add.graphics().setDepth(2);
+            const draw = (sel) => {
+                g.clear();
+                g.fillStyle(sel ? 0x223355 : 0x0e1a27, 1);
+                g.fillRoundedRect(tBtnX, by, tBtnW, tBtnH, 8);
+                g.lineStyle(2, t.key === 'boundary' ? this.currentBoundaryColor : t.color, sel ? 1 : 0.5);
+                g.strokeRoundedRect(tBtnX, by, tBtnW, tBtnH, 8);
+            };
+            draw(t.key === this.currentTool);
+            this.add.text(tBtnX + tBtnW / 2, by + (t.desc ? 11 : 22), t.label, { fontFamily: "'Impact'", fontSize: '15px', fill: '#' + t.color.toString(16).padStart(6, '0'), stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(3);
+            if (t.desc) this.add.text(tBtnX + tBtnW / 2, by + 30, t.desc, { fontFamily: "'Arial'", fontSize: '11px', fill: '#aaaaaa' }).setOrigin(0.5).setDepth(3);
+            const hit = this.add.rectangle(tBtnX + tBtnW / 2, by + tBtnH / 2, tBtnW, tBtnH, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+            this._toolBtns[t.key] = { g, draw, key: t.key };
+            hit.on('pointerdown', () => {
+                this.currentTool = t.key;
+                tools.forEach(tt => this._toolBtns[tt.key].draw(tt.key === t.key));
+            });
+            tY += tBtnH + 6;
+        });
+
+        // Color swatches for boundary wall
+        tY += 4;
+        this.add.text(tBtnX + tBtnW / 2, tY, 'ЦВЕТ СТЕНЫ', { fontFamily: "'Arial'", fontSize: '10px', fill: '#888888' }).setOrigin(0.5, 0).setDepth(2);
+        tY += 14;
+        const bdColors = [0x888888, 0x8855dd, 0x336644, 0x336688, 0xaa5533];
+        const swSz = 20, swGap = 5;
+        const swTotalW = bdColors.length * (swSz + swGap) - swGap;
+        const swX0 = tBtnX + (tBtnW - swTotalW) / 2;
+        this._swatchGfx = [];
+        bdColors.forEach((c, ci) => {
+            const sx = swX0 + ci * (swSz + swGap);
+            const sy = tY;
+            const sg = this.add.graphics().setDepth(2);
+            const drawSw = (sel) => {
+                sg.clear();
+                sg.fillStyle(c, 1); sg.fillRect(sx, sy, swSz, swSz);
+                sg.lineStyle(2, sel ? 0xffffff : 0x222222, 1); sg.strokeRect(sx, sy, swSz, swSz);
+            };
+            drawSw(c === this.currentBoundaryColor);
+            this._swatchGfx.push({ sg, drawSw, color: c });
+            const sh = this.add.rectangle(sx + swSz / 2, sy + swSz / 2, swSz, swSz, 0, 0).setInteractive({ useHandCursor: true }).setDepth(3);
+            sh.on('pointerdown', () => {
+                this.currentBoundaryColor = c;
+                this.currentTool = 'boundary';
+                this._swatchGfx.forEach(s => s.drawSw(s.color === c));
+                tools.forEach(tt => this._toolBtns[tt.key].draw(tt.key === 'boundary'));
+            });
+        });
+        tY += swSz + 10;
+
+        // Trap damage selector
+        this.currentTrapDamage = 5;
+        this.add.text(tBtnX + tBtnW / 2, tY, 'УРОН ЛОВУШКИ', { fontFamily: "'Arial'", fontSize: '10px', fill: '#ff8888' }).setOrigin(0.5, 0).setDepth(2);
+        tY += 14;
+        const trapDmgs = [1, 2, 4, 5, 10];
+        const tdSz = Math.floor((tBtnW - 4 * 4) / 5);
+        this._trapDmgBtns = [];
+        trapDmgs.forEach((d, di) => {
+            const bx = tBtnX + di * (tdSz + 4);
+            const syd = tY;
+            const bg = this.add.graphics().setDepth(2);
+            const drawTd = (sel) => {
+                bg.clear();
+                bg.fillStyle(sel ? 0x550000 : 0x1a0000, 1);
+                bg.fillRect(bx, syd, tdSz, 22);
+                bg.lineStyle(2, sel ? 0xff4444 : 0x550000, 1);
+                bg.strokeRect(bx, syd, tdSz, 22);
+            };
+            drawTd(d === this.currentTrapDamage);
+            this.add.text(bx + tdSz / 2, syd + 11, `${d}$`, { fontFamily: "'Impact'", fontSize: '11px', fill: '#ff8888', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5).setDepth(3);
+            const hit = this.add.rectangle(bx + tdSz / 2, syd + 11, tdSz, 22, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+            this._trapDmgBtns.push({ bg, drawTd, val: d });
+            hit.on('pointerdown', () => {
+                this.currentTrapDamage = d;
+                this._trapDmgBtns.forEach(b => b.drawTd(b.val === d));
+            });
+        });
+        tY += 22 + 8;
+
+        // Legend
+        this.add.text(tBtnX + tBtnW / 2, tY, '💀 = -деньги\n❄ = замедление\n◆ = зона дохода', { fontFamily: "'Arial'", fontSize: '11px', fill: '#888888', align: 'center' }).setOrigin(0.5, 0).setDepth(2);
+
+        // Action buttons (bottom)
+        const abY = [700, 760, 820];
+        const abLabels = ['ТЕСТ', 'СОХРАНИТЬ', 'МЕНЮ'];
+        const abColors = [0x44ff88, 0xffcc44, 0xaaaaaa];
+        //  const abColors = [0xaa3a16, 0xffcc44, 0xaaaaaa];
+        abLabels.forEach((lbl, i) => {
+            const ag = this.add.graphics().setDepth(2);
+            const ay = abY[i];
+            const draw = (hov) => {
+                ag.clear();
+                ag.fillStyle(hov ? 0x223344 : 0x0d1824, 1);
+                ag.fillRoundedRect(tBtnX, ay - 20, tBtnW, 38, 8);
+                ag.lineStyle(2, abColors[i], hov ? 1 : 0.7);
+                ag.strokeRoundedRect(tBtnX, ay - 20, tBtnW, 38, 8);
+            };
+            draw(false);
+            this.add.text(tBtnX + tBtnW / 2, ay, lbl, { fontFamily: "'Impact'", fontSize: '18px', fill: '#' + abColors[i].toString(16).padStart(6, '0'), stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(3);
+            const hit = this.add.rectangle(tBtnX + tBtnW / 2, ay, tBtnW, 38, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+            hit.on('pointerover', () => draw(true)); hit.on('pointerout', () => draw(false));
+            hit.on('pointerdown', () => {
+                if (i === 0) this._testLevel();
+                else if (i === 1) this._saveLevel();
+                else if (this.levelNum) this.scene.start('LevelSelectScene');
+                else this.scene.start('StartScene');
+            });
+        });
+
+        // Clear button
+        const clrG = this.add.graphics().setDepth(2);
+        const drawClr = (hov) => { clrG.clear(); clrG.fillStyle(hov ? 0x300a0a : 0x1a0606, 1); clrG.fillRoundedRect(tBtnX, 648, tBtnW, 34, 8); clrG.lineStyle(2, 0xff4444, hov ? 1 : 0.6); clrG.strokeRoundedRect(tBtnX, 648, tBtnW, 34, 8); };
+        drawClr(false);
+        this.add.text(tBtnX + tBtnW / 2, 665, 'ОЧИСТИТЬ', { fontFamily: "'Impact'", fontSize: '15px', fill: '#ff4444', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(3);
+        const clrHit = this.add.rectangle(tBtnX + tBtnW / 2, 665, tBtnW, 34, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        clrHit.on('pointerover', () => drawClr(true)); clrHit.on('pointerout', () => drawClr(false));
+        clrHit.on('pointerdown', () => { this.cells = Array.from({ length: ROWS }, () => Array(COLS).fill(null)); this._drawCells(); });
+
+        // Load saved if exists
+        this._loadLevel();
+
+        // Input: paint on click/drag within grid
+        this.input.on('pointerdown', (p) => { this.isPainting = true; this._paintAt(p.x, p.y); });
+        this.input.on('pointermove', (p) => { if (this.isPainting) this._paintAt(p.x, p.y); });
+        this.input.on('pointerup', () => { this.isPainting = false; });
+    }
+
+    _getCellAt(px, py) {
+        const col = Math.floor((px - this.GSX) / this.D);
+        const row = Math.floor((py - this.GSY) / this.D);
+        if (col < 0 || col >= this.COLS || row < 0 || row >= this.ROWS) return null;
+        return { col, row };
+    }
+
+    _paintAt(px, py) {
+        const cell = this._getCellAt(px, py);
+        if (!cell) return;
+        const { col, row } = cell;
+        if (this.currentTool === 'erase') {
+            this.cells[row][col] = null;
+        } else if (this.currentTool === 'boundary') {
+            this.cells[row][col] = { type: 'boundary', color: this.currentBoundaryColor };
+        } else if (this.currentTool === 'trap') {
+            this.cells[row][col] = { type: 'trap', damage: this.currentTrapDamage };
+        } else {
+            this.cells[row][col] = { type: this.currentTool };
+        }
+        this._drawCells();
+    }
+
+    _drawCells() {
+        const g = this._cellGfx; g.clear();
+        if (this._iconObjs) this._iconObjs.forEach(o => o.destroy());
+        this._iconObjs = [];
+        for (let r = 0; r < this.ROWS; r++) {
+            for (let c = 0; c < this.COLS; c++) {
+                const cell = this.cells[r][c];
+                if (!cell) continue;
+                const x = this.GSX + c * this.D, y = this.GSY + r * this.D;
+                if (cell.type === 'boundary' || cell.type === 'static') {
+                    const col = cell.color || 0x888888;
+                    g.fillStyle(col, 1); g.fillRect(x, y, this.D, this.D);
+                    g.lineStyle(2, col, 1); g.strokeRect(x, y, this.D, this.D);
+                } else if (cell.type === 'zone') {
+                    g.fillStyle(0x00ddaa, 0.3); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    g.lineStyle(2, 0x00ffcc, 0.9); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2, '◆', { fontSize: '13px', fill: '#00ffcc', stroke: '#003322', strokeThickness: 2 }).setOrigin(0.5).setDepth(3));
+                } else if (cell.type === 'trap') {
+                    g.fillStyle(0x440000, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    g.lineStyle(2, 0xff3333, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    const _dmgStr = `-${cell.damage || 5}$`;
+                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2 - 7, '💀', { fontSize: '11px' }).setOrigin(0.5).setDepth(3));
+                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2 + 6, _dmgStr, { fontFamily: "'Impact'", fontSize: '10px', fill: '#ff8888', stroke: '#220000', strokeThickness: 2 }).setOrigin(0.5).setDepth(3));
+                } else if (cell.type === 'slow') {
+                    g.fillStyle(0x001040, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    g.lineStyle(2, 0x3366ff, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2, '❄', { fontSize: '13px' }).setOrigin(0.5).setDepth(3));
+                }
+            }
+        }
+    }
+
+    _levelKey() {
+        return this.levelNum ? `bumper_level_${this.levelNum}` : 'bumper_editor_level';
+    }
+
+    _saveLevel() {
+        const walls = [];
+        for (let r = 0; r < this.ROWS; r++)
+            for (let c = 0; c < this.COLS; c++)
+                if (this.cells[r][c]) {
+                    const _sc = this.cells[r][c];
+                    const _se = { col: c, row: r, type: _sc.type };
+                    if (_sc.color) _se.color = _sc.color;
+                    if (_sc.damage) _se.damage = _sc.damage;
+                    walls.push(_se);
+                }
+        try { localStorage.setItem(this._levelKey(), JSON.stringify(walls)); } catch (e) { }
+        const txt = this.add.text(this.GSX + (this.COLS * this.D) / 2, this.GSY + (this.ROWS * this.D) / 2, 'СОХРАНЕНО!', { fontFamily: "'Impact'", fontSize: '38px', fill: '#44ff88', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(10);
+        this.tweens.add({ targets: txt, alpha: 0, y: txt.y - 40, duration: 1200, ease: 'Power2', onComplete: () => txt.destroy() });
+    }
+
+    _loadLevel() {
+        try {
+            const raw = localStorage.getItem(this._levelKey());
+            if (!raw) return;
+            const walls = JSON.parse(raw);
+            walls.forEach(w => {
+                if (w.row < this.ROWS && w.col < this.COLS) {
+                    const _lc = { type: w.type };
+                    if (w.color) _lc.color = w.color;
+                    if (w.damage) _lc.damage = w.damage;
+                    this.cells[w.row][w.col] = _lc;
+                }
+            });
+            this._drawCells();
+        } catch (e) { }
+    }
+
+    _testLevel() {
+        // Auto-save current state so returning to editor via "← РЕД" shows unsaved changes
+        const snap = [];
+        for (let r = 0; r < this.ROWS; r++)
+            for (let c = 0; c < this.COLS; c++)
+                if (this.cells[r][c]) {
+                    const _tc = this.cells[r][c];
+                    const _te = { col: c, row: r, type: _tc.type };
+                    if (_tc.color) _te.color = _tc.color;
+                    if (_tc.damage) _te.damage = _tc.damage;
+                    snap.push(_te);
+                }
+        try { localStorage.setItem(this._levelKey(), JSON.stringify(snap)); } catch (e) { }
+
+        const customWalls = [];
+        const D = this.D;
+        for (let r = 0; r < this.ROWS; r++)
+            for (let c = 0; c < this.COLS; c++)
+                if (this.cells[r][c]) {
+                    const _tc = this.cells[r][c];
+                    customWalls.push({ x: this.GSX + c * D + D / 2, y: this.GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null });
+                }
+        this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum });
+    }
+}
+
+class LevelSelectScene extends Phaser.Scene {
+    constructor() { super('LevelSelectScene'); }
+
+    create() {
+        this._seedDefaultLevels();
+        const W = 760, H = 870;
+        const ch = (n) => '#' + n.toString(16).padStart(6, '0');
+
+        this.add.rectangle(W / 2, H / 2, W, H, 0x0b1520);
+        const dotGfx = this.add.graphics();
+        dotGfx.fillStyle(0xffffff, 0.025);
+        for (let gx = 30; gx < W; gx += 48)
+            for (let gy = 20; gy < H; gy += 40)
+                dotGfx.fillCircle(gx, gy, 1.5);
+
+        this.add.text(W / 2, 52, 'УРОВНИ', {
+            fontFamily: "'Impact', 'Arial Black', sans-serif",
+            fontSize: '52px', fill: '#ffcc44', stroke: '#010e05', strokeThickness: 9
+        }).setOrigin(0.5);
+
+        // Back button (top-left)
+        const backGfx = this.add.graphics();
+        const drawBack = (hov) => {
+            backGfx.clear();
+            backGfx.fillStyle(hov ? 0x1a1a2a : 0x0d1020, 1);
+            backGfx.fillRoundedRect(18, 18, 110, 38, 8);
+            backGfx.lineStyle(2, 0x8888aa, hov ? 1 : 0.55);
+            backGfx.strokeRoundedRect(18, 18, 110, 38, 8);
+        };
+        drawBack(false);
+        this.add.text(73, 37, '← НАЗАД', { fontFamily: "'Impact'", fontSize: '16px', fill: '#aaaacc', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5);
+        const backHit = this.add.rectangle(73, 37, 110, 38, 0, 0).setInteractive({ useHandCursor: true });
+        backHit.on('pointerover', () => drawBack(true));
+        backHit.on('pointerout', () => drawBack(false));
+        backHit.on('pointerdown', () => this.scene.start('StartScene'));
+
+        // Level grid 10×5 = 50 levels
+        const COLS = 10, TOTAL = 50;
+        const BW = 62, BH = 54, GAP = 4;
+        const gridW = COLS * (BW + GAP) - GAP;
+        const startX = (W - gridW) / 2;
+        const startY = 100;
+
+        this._selectedLevel = null;
+        this._btnDraw = [];
+
+        for (let i = 0; i < TOTAL; i++) {
+            const lvl = i + 1;
+            const col = i % COLS;
+            const row = Math.floor(i / COLS);
+            const bx = startX + col * (BW + GAP) + BW / 2;
+            const by = startY + row * (BH + GAP) + BH / 2;
+
+            let hasSave = false;
+            try { hasSave = !!localStorage.getItem(`bumper_level_${lvl}`); } catch (e) { }
+
+            const gfx = this.add.graphics();
+            const draw = (sel) => {
+                gfx.clear();
+                gfx.fillStyle(sel ? 0x1a3a18 : (hasSave ? 0x0d2018 : 0x0e1524), 1);
+                gfx.fillRoundedRect(bx - BW / 2, by - BH / 2, BW, BH, 7);
+                gfx.lineStyle(2, sel ? 0x44ff88 : (hasSave ? 0x2a6640 : 0x223355), sel ? 1 : 0.7);
+                gfx.strokeRoundedRect(bx - BW / 2, by - BH / 2, BW, BH, 7);
+            };
+            draw(false);
+            this.add.text(bx, by - (hasSave ? 8 : 0), `${lvl}`, {
+                fontFamily: "'Impact'", fontSize: '20px',
+                fill: hasSave ? '#44ff88' : '#8899aa', stroke: '#000', strokeThickness: 2
+            }).setOrigin(0.5);
+            if (hasSave) this.add.text(bx, by + 14, '✓', { fontFamily: "'Arial'", fontSize: '13px', fill: '#44ff88' }).setOrigin(0.5);
+
+            this._btnDraw.push({ lvl, draw });
+
+            const hit = this.add.rectangle(bx, by, BW, BH, 0, 0).setInteractive({ useHandCursor: true });
+            hit.on('pointerdown', () => this._selectLevel(lvl));
+        }
+
+        // Action panel (shown after selecting a level)
+        const panY = startY + 5 * (BH + GAP) + 30;
+
+        const hintGfx = this.add.graphics();
+        hintGfx.fillStyle(0x0d1824, 0.7);
+        hintGfx.fillRoundedRect(W / 2 - 260, panY, 520, 55, 12);
+        hintGfx.lineStyle(1.5, 0x445566, 0.5);
+        hintGfx.strokeRoundedRect(W / 2 - 260, panY, 520, 55, 12);
+        this._hintTxt = this.add.text(W / 2, panY + 28, 'Выберите уровень', {
+            fontFamily: "'Impact'", fontSize: '22px', fill: '#556677'
+        }).setOrigin(0.5);
+
+        // Action buttons (hidden until level selected)
+        const actY = panY + 90;
+        const BW2 = 230, BH2 = 58, gap2 = 16;
+        const playX = W / 2 - BW2 - gap2 / 2;
+        const editX = W / 2 + gap2 / 2;
+
+        // ИГРАТЬ button (left)
+        const playGfx = this.add.graphics();
+        const drawPlay = (hov) => {
+            playGfx.clear();
+            playGfx.fillStyle(hov ? 0x0a1a3a : 0x060e20, 1);
+            playGfx.fillRoundedRect(playX, actY, BW2, BH2, 12);
+            playGfx.lineStyle(2.5, 0x44aaff, hov ? 1 : 0.75);
+            playGfx.strokeRoundedRect(playX, actY, BW2, BH2, 12);
+        };
+        drawPlay(false);
+        const playTxt = this.add.text(playX + BW2 / 2, actY + BH2 / 2, '▶  ИГРАТЬ', {
+            fontFamily: "'Impact'", fontSize: '26px', fill: '#44aaff', stroke: '#000', strokeThickness: 4
+        }).setOrigin(0.5);
+        const playHit = this.add.rectangle(playX + BW2 / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
+        playHit.on('pointerover', () => drawPlay(true));
+        playHit.on('pointerout', () => drawPlay(false));
+        playHit.on('pointerdown', () => {
+            if (!this._selectedLevel) return;
+            let customWalls = [];
+            try {
+                const raw = localStorage.getItem(`bumper_level_${this._selectedLevel}`);
+                if (raw) {
+                    const D = 36, GSX = 200, GSY = 118;
+                    JSON.parse(raw).forEach(w => {
+                        customWalls.push({ x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null });
+                    });
+                }
+            } catch (e) { }
+            this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this._selectedLevel });
+        });
+
+        // РЕДАКТИРОВАТЬ button (right)
+        const editGfx = this.add.graphics();
+        const drawEdit = (hov) => {
+            editGfx.clear();
+            editGfx.fillStyle(hov ? 0x1a3a18 : 0x0d2010, 1);
+            editGfx.fillRoundedRect(editX, actY, BW2, BH2, 12);
+            editGfx.lineStyle(2.5, 0x44ff88, hov ? 1 : 0.75);
+            editGfx.strokeRoundedRect(editX, actY, BW2, BH2, 12);
+        };
+        drawEdit(false);
+        const editTxt = this.add.text(editX + BW2 / 2, actY + BH2 / 2, '✏  РЕДАКТИРОВАТЬ', {
+            fontFamily: "'Impact'", fontSize: '20px', fill: '#44ff88', stroke: '#000', strokeThickness: 4
+        }).setOrigin(0.5);
+        const editHit = this.add.rectangle(editX + BW2 / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
+        editHit.on('pointerover', () => drawEdit(true));
+        editHit.on('pointerout', () => drawEdit(false));
+        editHit.on('pointerdown', () => {
+            if (this._selectedLevel) this.scene.start('EditorScene', { levelNum: this._selectedLevel });
+        });
+
+        [playGfx, playTxt, playHit, editGfx, editTxt, editHit].forEach(o => o.setVisible(false));
+        this._actionObjs = [playGfx, playTxt, playHit, editGfx, editTxt, editHit];
+        this._drawPlay = drawPlay;
+        this._drawEdit = drawEdit;
+    }
+
+    _seedDefaultLevels() {
+        const b = (col, row, color) => ({ col, row, type: 'boundary', color: color || 0x3366cc });
+        const s = (col, row)        => ({ col, row, type: 'slow' });
+        const t = (col, row, dmg)   => ({ col, row, type: 'trap', damage: dmg || 2 });
+        const z = (col, row)        => ({ col, row, type: 'zone' });
+
+        const levels = [
+            // ── Уровень 1 – «Уголки» ──────────────────────────────────
+            // Четыре L-образных бампера по углам, две зоны дохода в центре
+            [
+                b(2,1), b(3,1), b(2,2),
+                b(6,1), b(7,1), b(7,2),
+                b(2,7), b(2,8), b(3,8),
+                b(7,7), b(6,8), b(7,8),
+                z(4,4), z(5,5),
+            ],
+            // ── Уровень 2 – «Каналы» ──────────────────────────────────
+            // Два горизонтальных барьера сверху и снизу, зоны по бокам, один замедлитель
+            [
+                b(0,2,0x44bb44), b(1,2,0x44bb44), b(2,2,0x44bb44),
+                b(7,2,0x44bb44), b(8,2,0x44bb44), b(9,2,0x44bb44),
+                b(0,7,0x44bb44), b(1,7,0x44bb44), b(2,7,0x44bb44),
+                b(7,7,0x44bb44), b(8,7,0x44bb44), b(9,7,0x44bb44),
+                z(0,4), z(9,4), z(0,5), z(9,5),
+                s(4,4),
+            ],
+            // ── Уровень 3 – «Крест» ───────────────────────────────────
+            // Крест из блоков делит поле на четыре секции, зоны по углам, ловушки + лёд в центре
+            [
+                b(4,1,0xaa4444), b(5,1,0xaa4444), b(4,2,0xaa4444), b(5,2,0xaa4444),
+                b(1,4,0xaa4444), b(2,4,0xaa4444), b(7,4,0xaa4444), b(8,4,0xaa4444),
+                b(1,5,0xaa4444), b(2,5,0xaa4444), b(7,5,0xaa4444), b(8,5,0xaa4444),
+                b(4,7,0xaa4444), b(5,7,0xaa4444), b(4,8,0xaa4444), b(5,8,0xaa4444),
+                z(1,1), z(8,1), z(1,8), z(8,8),
+                t(4,4,2), t(5,5,2),
+                s(4,5),
+            ],
+            // ── Уровень 4 – «Лабиринт» ───────────────────────────────
+            // П-образная стена слева, зеркальная справа, ловушки и замедлители в проходах
+            [
+                b(1,1,0x9944cc), b(2,1,0x9944cc), b(3,1,0x9944cc),
+                b(3,2,0x9944cc),
+                b(3,3,0x9944cc), b(4,3,0x9944cc), b(5,3,0x9944cc),
+                b(3,6,0x9944cc), b(4,6,0x9944cc), b(5,6,0x9944cc),
+                b(3,7,0x9944cc),
+                b(3,8,0x9944cc), b(4,8,0x9944cc), b(5,8,0x9944cc),
+                z(6,2), z(0,4), z(0,9), z(9,9),
+                s(1,5), s(7,5),
+                t(8,4,4), t(6,9,4),
+            ],
+            // ── Уровень 5 – «Арена» ──────────────────────────────────
+            // Арена с рамкой из бамперов, ловушки в 4 квадрантах, лёд в центре, зоны в углах
+            [
+                b(1,1,0xcc8833), b(4,1,0xcc8833), b(5,1,0xcc8833), b(8,1,0xcc8833),
+                b(1,2,0xcc8833), b(8,2,0xcc8833),
+                b(1,7,0xcc8833), b(8,7,0xcc8833),
+                b(1,8,0xcc8833), b(4,8,0xcc8833), b(5,8,0xcc8833), b(8,8,0xcc8833),
+                s(4,4), s(5,4), s(5,5),
+                t(3,3,4), t(6,3,4), t(3,6,5), t(6,6,5),
+                z(0,5), z(9,5), z(0,9), z(9,9),
+            ],
+        ];
+
+        levels.forEach((walls, i) => {
+            const key = `bumper_level_${i + 1}`;
+            try { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(walls)); } catch (e) { }
+        });
+    }
+
+    _selectLevel(lvl) {
+        this._btnDraw.forEach(b => b.draw(b.lvl === lvl));
+        this._selectedLevel = lvl;
+        this._hintTxt.setText(`УРОВЕНЬ  ${lvl}`).setStyle({ fill: '#ffcc44' });
+        this._actionObjs.forEach(o => o.setVisible(true));
+        this._drawPlay(false);
+        this._drawEdit(false);
     }
 }
 
 const config = {
     type: Phaser.AUTO,
     width: 760, height: 870,
-    backgroundColor: '#ccdae8',
+    backgroundColor: '#0b1520',
     parent: 'game-container',
     scale: {
         mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
         width: 760,
         height: 870,
     },
     input: {
         activePointers: 3,
     },
-    scene: [MainScene],
-    physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+    scene: [StartScene, MainScene, EditorScene, LevelSelectScene],
+    physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: 0 } },
 };
 new Phaser.Game(config);

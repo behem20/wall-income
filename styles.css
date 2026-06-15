@@ -8,7 +8,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #111;
+  background: #0b1520;
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
@@ -27,5 +27,4 @@ canvas {
   touch-action: none;
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
-  image-rendering: pixelated;
 }
