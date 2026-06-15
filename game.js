@@ -725,24 +725,6 @@ class MainScene extends Phaser.Scene {
             this.time.delayedCall(400, () => this.scene.start('StartScene'));
         });
 
-        // Back-to-editor button (test mode only)
-        if (this.testMode) {
-            const edBtnGfx = this.add.graphics().setDepth(10);
-            const drawEdBtn = (hov) => {
-                edBtnGfx.clear();
-                edBtnGfx.fillStyle(hov ? 0x0e2a14 : 0x081208, 0.95);
-                edBtnGfx.fillRoundedRect(628, 72, 62, 26, 6);
-                edBtnGfx.lineStyle(1.5, hov ? 0x44ff88 : 0x226633, 1);
-                edBtnGfx.strokeRoundedRect(628, 72, 62, 26, 6);
-            };
-            drawEdBtn(false);
-            this.add.text(659, 85, '← РЕД', { fontFamily: "'Impact'", fontSize: '13px', fill: '#44ff88', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5).setDepth(11);
-            const edBtnHit = this.add.rectangle(659, 85, 62, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
-            edBtnHit.on('pointerover', () => drawEdBtn(true));
-            edBtnHit.on('pointerout', () => drawEdBtn(false));
-            edBtnHit.on('pointerdown', () => this.scene.start('EditorScene', { levelNum: this.testLevelNum }));
-        }
-
         // ── Hand strip (no label, no wrapper) ────────────────────
         this.returnZoneBg = this.add.rectangle(380, this.slotY, 740, 160, 0x0e1a27, 0);
 
@@ -2436,8 +2418,14 @@ class MainScene extends Phaser.Scene {
             fontSize: '22px', fill: '#44aaff', stroke: '#000000', strokeThickness: 4
         }).setOrigin(0.5).setDepth(32);
 
-        const nextLvl = lvl + 1;
-        const goTxt = this.add.text(380, 410, `→ Уровень ${nextLvl}`, {
+        // Save progress
+        try {
+            const _prev = parseInt(localStorage.getItem('bumper_prod_progress') || '0');
+            if (lvl > _prev) localStorage.setItem('bumper_prod_progress', String(lvl));
+        } catch(e) {}
+
+        const _isLast = lvl >= 5;
+        const goTxt = this.add.text(380, 410, _isLast ? '→ Бесконечный режим' : `→ Уровень ${lvl + 1}`, {
             fontFamily: "'Impact', 'Arial Narrow', sans-serif",
             fontSize: '28px', fill: '#88ff88', stroke: '#000000', strokeThickness: 5
         }).setOrigin(0.5).setDepth(32).setAlpha(0);
@@ -2445,16 +2433,31 @@ class MainScene extends Phaser.Scene {
             this.tweens.add({ targets: goTxt, alpha: 1, duration: 500, ease: 'Power2' });
         });
 
-        // Increment level in registry
-        this.registry.set('level', nextLvl);
-
         // Fireworks
         this._playWinFireworks();
 
-        // Fade out + return to menu
+        // Fade out + auto-advance to next level or infinite
         this.time.delayedCall(4200, () => {
             this.cameras.main.fade(900, 0, 0, 0);
-            this.time.delayedCall(900, () => this.scene.start('StartScene'));
+            this.time.delayedCall(900, () => {
+                if (_isLast) {
+                    this.scene.start('MainScene', { mode: 'infinite' });
+                } else {
+                    const _next = lvl + 1;
+                    this.registry.set('level', _next);
+                    let _nw = [];
+                    try {
+                        const _raw = localStorage.getItem(`bumper_level_${_next}`);
+                        if (_raw) {
+                            const _D = 36, _GX = 200, _GY = 118;
+                            JSON.parse(_raw).forEach(w => {
+                                _nw.push({ x: _GX + w.col * _D + _D / 2, y: _GY + w.row * _D + _D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null });
+                            });
+                        }
+                    } catch(e) {}
+                    this.scene.start('MainScene', { customWalls: _nw, testMode: true, levelNum: _next });
+                }
+            });
         });
     }
 
@@ -2500,18 +2503,38 @@ class StartScene extends Phaser.Scene {
             fontSize: '20px', fill: '#aaaacc', stroke: '#000000', strokeThickness: 3
         }).setOrigin(0.5);
 
-        const level = this.registry.get('level') || 1;
-        let hasNormalSave = false, hasInfSave = false;
-        try { hasNormalSave = !!localStorage.getItem('bumper_save_normal'); } catch (e) { }
+        let hasInfSave = false;
         try { hasInfSave = !!localStorage.getItem('bumper_save_infinite'); } catch (e) { }
 
-        // 3 fixed buttons — normal and infinite each auto-resume their own save
+        let _progress = 0;
+        try { _progress = parseInt(localStorage.getItem('bumper_prod_progress') || '0'); } catch(e) {}
+        const _nextLvl = Math.min(_progress + 1, 5);
+        const _playSub = _progress >= 5 ? '(бесконечный режим)' : `(уровень ${_nextLvl} из 5)`;
+
         const btnDefs = [
             {
                 label: 'ИГРАТЬ',
-                sub: '(выбрать уровень)',
+                sub: _playSub,
                 clr: 0x44ff88, bg: 0x0d2818, bgH: 0x1a4828,
-                action: () => this.scene.start('LevelSelectScene'), pulse: true
+                action: () => {
+                    if (_progress >= 5) {
+                        this.scene.start('MainScene', { mode: 'infinite' });
+                    } else {
+                        this.registry.set('level', _nextLvl);
+                        let _cw = [];
+                        try {
+                            const _raw = localStorage.getItem(`bumper_level_${_nextLvl}`);
+                            if (_raw) {
+                                const _D = 36, _GX = 200, _GY = 118;
+                                JSON.parse(_raw).forEach(w => {
+                                    _cw.push({ x: _GX + w.col * _D + _D / 2, y: _GY + w.row * _D + _D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null });
+                                });
+                            }
+                        } catch(e) {}
+                        this.scene.start('MainScene', { customWalls: _cw, testMode: true, levelNum: _nextLvl });
+                    }
+                },
+                pulse: true
             },
             {
                 label: '∞  БЕСКОНЕЧНЫЙ',
@@ -2519,12 +2542,6 @@ class StartScene extends Phaser.Scene {
                 clr: 0x44aaff, bg: 0x07101f, bgH: 0x0e1f40,
                 action: () => this.scene.start('MainScene', { mode: 'infinite' })
             },
-            {
-                label: 'УРОВНИ',
-                sub: null,
-                clr: 0xffcc44, bg: 0x1a1500, bgH: 0x2a2200,
-                action: () => this.scene.start('LevelSelectScene')
-            }
         ];
 
         const bw = 290, bh = 64, bx = W / 2 - bw / 2;
