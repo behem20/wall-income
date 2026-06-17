@@ -421,7 +421,7 @@ class MainScene extends Phaser.Scene {
         ).setStrokeStyle(1, 0xf8ae0f).setDepth(2);
         this.physics.add.existing(ball);
         ball.body.setCircle(R).setBounce(1, 1).setAllowGravity(false).setDrag(0);
-        ball.bounceSpeed = 400; ball.currentSpeed = 400;
+        ball.bounceSpeed = 200; ball.currentSpeed = 200;
         // ── PARTICLE TRAIL — edit config below ──────────────────
         ball.trail = this.add.particles(0, 0, 'particle', {
             lifespan: 380,
@@ -742,6 +742,10 @@ class MainScene extends Phaser.Scene {
             fontFamily: "'Impact', 'Arial Black', sans-serif",
             fontSize: '16px', fill: '#ffdd44', stroke: '#100e00', strokeThickness: 3
         }).setOrigin(0, 0).setDepth(5);
+        this.fpsText = this.add.text(10, 10, 'FPS: --', {
+            fontFamily: "'Impact'", fontSize: '22px', fill: '#ff4444',
+            stroke: '#000', strokeThickness: 2
+        }).setDepth(100);
         this.muteBtn = this.add.text(748, 112, '🔊', { fontSize: '22px' })
             .setOrigin(1, 0.5).setInteractive({ useHandCursor: true }).setDepth(10);
         this.muteBtn.on('pointerover', () => this.playSound('hover'));
@@ -782,6 +786,43 @@ class MainScene extends Phaser.Scene {
             edBtnHit.on('pointerover', () => drawEdBtn(true));
             edBtnHit.on('pointerout', () => drawEdBtn(false));
             edBtnHit.on('pointerdown', () => this.scene.start('EditorScene', { levelNum: this.testLevelNum }));
+
+            // ── DEV spawn buttons ────────────────────────────────────
+            const devBtnStyle = { fontFamily: "'Impact'", fontSize: '13px', fill: '#ffee44', stroke: '#000', strokeThickness: 2 };
+            const makeDevBtn = (label, bx, by, onClick) => {
+                const gfx = this.add.graphics().setDepth(10);
+                const draw = (hov) => {
+                    gfx.clear();
+                    gfx.fillStyle(hov ? 0x2a2200 : 0x111000, 0.95);
+                    gfx.fillRoundedRect(bx, by, 66, 26, 6);
+                    gfx.lineStyle(1.5, hov ? 0xffee44 : 0x665500, 1);
+                    gfx.strokeRoundedRect(bx, by, 66, 26, 6);
+                };
+                draw(false);
+                this.add.text(bx + 33, by + 13, label, devBtnStyle).setOrigin(0.5).setDepth(11);
+                const hit = this.add.rectangle(bx + 33, by + 13, 66, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
+                hit.on('pointerover', () => draw(true));
+                hit.on('pointerout', () => draw(false));
+                hit.on('pointerdown', onClick);
+            };
+
+            makeDevBtn('+МЯCH', 628, 102, () => {
+                this.createBall();
+            });
+
+            const wallTypes = ['block', 'vertical', 'horizontal', 'tDown', 'tUp', 'tLeft', 'tRight'];
+            let _devWallIdx = 0;
+            makeDevBtn('+СТЕНА', 628, 132, () => {
+                const type = wallTypes[_devWallIdx % wallTypes.length];
+                _devWallIdx++;
+                const { w, h } = this.getWallDims(type);
+                const cx = this.fieldOffsetX + this.fieldSize / 2;
+                const cy = this.fieldOffsetY + this.fieldSize / 2;
+                const x = Phaser.Math.Between(cx - 100, cx + 100);
+                const y = Phaser.Math.Between(cy - 100, cy + 100);
+                this.createWall(x, y, w, h, type, Phaser.Math.Between(1, 5));
+            });
+            // ────────────────────────────────────────────────────────
         }
 
         // ── Hand strip (no label, no wrapper) ────────────────────
@@ -2054,7 +2095,8 @@ class MainScene extends Phaser.Scene {
         return [{ x: wx, y: wy, hw: wall.width / 2, hh: wall.height / 2 }];
     }
 
-    update() {
+    update(time, delta) {
+        if (this.fpsText) this.fpsText.setText('FPS: ' + Math.round(1000 / delta));
         const r = Math.round(this.BALL_R * 0.9);
         const minX = this.fieldOffsetX + r, maxX = this.fieldOffsetX + this.fieldSize - r;
         const minY = this.fieldOffsetY + r, maxY = this.fieldOffsetY + this.fieldSize - r;
@@ -2077,26 +2119,32 @@ class MainScene extends Phaser.Scene {
             const _snd = () => { const now = this.time.now; if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('hit'); } };
             if (ball.x < minX) {
                 ball.setX(minX); ball.body.setVelocityX(Math.abs(ball.body.velocity.x));
-                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                ball.currentSpeed = ball.bounceSpeed;
                 this._squishBall(ball, 0.55, 1.45); _snd();
             } else if (ball.x > maxX) {
                 ball.setX(maxX); ball.body.setVelocityX(-Math.abs(ball.body.velocity.x));
-                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                ball.currentSpeed = ball.bounceSpeed;
                 this._squishBall(ball, 0.55, 1.45); _snd();
             }
             if (ball.y < minY) {
                 ball.setY(minY); ball.body.setVelocityY(Math.abs(ball.body.velocity.y));
-                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                ball.currentSpeed = ball.bounceSpeed;
                 this._squishBall(ball, 1.45, 0.55); _snd();
             } else if (ball.y > maxY) {
                 ball.setY(maxY); ball.body.setVelocityY(-Math.abs(ball.body.velocity.y));
-                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                ball.currentSpeed = ball.bounceSpeed;
                 this._squishBall(ball, 1.45, 0.55); _snd();
             }
 
-            // wall collision — T-walls use 2 rects, others 1
+            // wall collision — T-walls use 2 rects, others 1; slow-zone check merged here
+            let _newInSlowZone = false;
             this.wallsGroup.children.iterate(wall => {
                 if (!wall) return;
+                if (wall.specialType === 'slow') {
+                    const _shw = wall.width / 2, _shh = wall.height / 2;
+                    if (ball.x >= wall.x - _shw && ball.x <= wall.x + _shw && ball.y >= wall.y - _shh && ball.y <= wall.y + _shh) _newInSlowZone = true;
+                    return;
+                }
                 const rects = this._getWallCollisionRects(wall);
                 let hitNx = 0, hitNy = -1, hitOverlap = 0, didHit = false;
                 for (const rect of rects) {
@@ -2129,10 +2177,10 @@ class MainScene extends Phaser.Scene {
                         this._incomeWindow.push({ t: now, v: _earned });
                         wall.wallTotalEarned = (wall.wallTotalEarned || 0) + _earned;
                         (wall._wallIncWin = wall._wallIncWin || []).push({ t: now, v: _earned });
-                        ball.currentSpeed = Math.min(ball.currentSpeed * 1.35, ball.bounceSpeed * 2.0);
+                        ball.currentSpeed = ball.bounceSpeed;
                         if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('wallhit'); }
                         if (wall.valueText && wall.valueText.active) { this.tweens.killTweensOf(wall.valueText); this.tweens.add({ targets: wall.valueText, scaleX: 1.4, scaleY: 1.4, duration: 75, yoyo: true, ease: 'Power2', onComplete: () => { if (wall.valueText && wall.valueText.active) wall.valueText.setScale(1); } }); }
-                        this.updateUI();
+                        this._uiDirty = true;
                     }
                 }
                 if (wall.incomeValue > 0 && now - (wall.lastFloat || 0) >= 180) {
@@ -2154,7 +2202,7 @@ class MainScene extends Phaser.Scene {
                         wall.totalTaken = (wall.totalTaken || 0) + loss;
                         (wall._trapWindow = wall._trapWindow || []).push({ t: now, v: loss });
                         this.showFloatingText(wall.x, wall.y, `-${loss}$`, -1);
-                        this.updateUI();
+                        this._uiDirty = true;
                     }
                 }
             });
@@ -2184,14 +2232,11 @@ class MainScene extends Phaser.Scene {
             // decay
             if (ball.currentSpeed > ball.bounceSpeed)
                 ball.currentSpeed = Math.max(ball.currentSpeed * 0.985, ball.bounceSpeed);
-            // slow zone: check if ball is inside any slow wall this frame
-            let _newInSlowZone = false;
-            this.wallsGroup.children.iterate(w => { if (!w || w.specialType !== 'slow') return; const _shw = w.width / 2, _shh = w.height / 2; if (ball.x >= w.x - _shw && ball.x <= w.x + _shw && ball.y >= w.y - _shh && ball.y <= w.y + _shh) _newInSlowZone = true; });
             if (_newInSlowZone !== !!ball._inSlowZone) { if (!_newInSlowZone) ball._slowExitTime = this.time.now; else this.playSound('freeze'); ball._inSlowZone = _newInSlowZone; }
             const _slowMult = ball._inSlowZone ? 0.25 : (ball._slowExitTime && (this.time.now - ball._slowExitTime) < 500 ? 0.25 + 0.75 * Math.min(1, (this.time.now - ball._slowExitTime) / 500) : 1);
             const vel = ball.body.velocity, spd = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
             const _isSlowed = _slowMult < 1.0;
-            if (spd > 0) { const ts = (this._physicsSpeedMult || 1) * _slowMult; ball.body.setVelocity(vel.x / spd * ball.currentSpeed * ts, vel.y / spd * ball.currentSpeed * ts); }
+            if (spd > 0) { const ts = (this._physicsSpeedMult || 1) * _slowMult; const tspd = ball.currentSpeed * ts; if (Math.abs(spd - tspd) > tspd * 0.02) ball.body.setVelocity(vel.x / spd * tspd, vel.y / spd * tspd); }
             if (_isSlowed && !ball._isTinted) {
                 ball._isTinted = true;
                 ball._slowAngle = 0;
@@ -2232,7 +2277,7 @@ class MainScene extends Phaser.Scene {
             if (_isSlowed && ball._slowEmitter && ball._slowEmitter.active) {
                 ball._slowEmitter.setPosition(ball.x, ball.y);
             }
-            if (_isSlowed && ball._slowGfx && ball._slowGfx.active) {
+            if (_isSlowed && ball._slowGfx && ball._slowGfx.active && this._frameCount % 2 === 0) {
                 ball._slowAngle = (ball._slowAngle || 0) + 0.08;
                 const _R = Math.round(this.BALL_R * 0.9) + 4;
                 ball._slowGfx.clear();
@@ -2284,6 +2329,8 @@ class MainScene extends Phaser.Scene {
                 ball.body.setVelocity(sx * Math.cos(a) * ball.bounceSpeed, sy * Math.sin(a) * ball.bounceSpeed);
             }
         });
+
+        if (this._uiDirty) { this._uiDirty = false; this.updateUI(); }
     }
 
     _showWallTooltip(wall) {
@@ -3219,7 +3266,7 @@ class LevelSelectScene extends Phaser.Scene {
 }
 
 const config = {
-    type: Phaser.AUTO,
+    type: Phaser.WEBGL,
     width: 760, height: 870,
     backgroundColor: '#0b1520',
     parent: 'game-container',
