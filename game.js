@@ -2096,7 +2096,7 @@ class MainScene extends Phaser.Scene {
     }
 
     update(time, delta) {
-        if (this.fpsText) this.fpsText.setText('FPS: ' + Math.round(1000 / delta));
+        if (this.fpsText) { const _cv = this.game.canvas; this.fpsText.setText('FPS: ' + Math.round(1000 / delta) + ' | ' + _cv.width + 'x' + _cv.height); }
         const r = Math.round(this.BALL_R * 0.9);
         const minX = this.fieldOffsetX + r, maxX = this.fieldOffsetX + this.fieldSize - r;
         const minY = this.fieldOffsetY + r, maxY = this.fieldOffsetY + this.fieldSize - r;
@@ -3263,6 +3263,11 @@ const config = {
         mode: Phaser.Scale.FIT,
         width: 760,
         height: 870,
+    },
+    render: {
+        antialias: false,
+        powerPreference: 'high-performance',
+        roundPixels: true,
     },
     input: {
         activePointers: 3,
