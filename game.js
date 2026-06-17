@@ -421,16 +421,16 @@ class MainScene extends Phaser.Scene {
         ).setStrokeStyle(1, 0xf8ae0f).setDepth(2);
         this.physics.add.existing(ball);
         ball.body.setCircle(R).setBounce(1, 1).setAllowGravity(false).setDrag(0);
-        ball.bounceSpeed = 400; ball.currentSpeed = 400;
+        ball.bounceSpeed = 200; ball.currentSpeed = 200;
         // ── PARTICLE TRAIL — edit config below ──────────────────
-        ball.trail = this.add.particles(0, 0, 'particle', {
-            lifespan: 380,
-            scale: { start: 0.8, end: 0 },
-            alpha: { start: 0.04, end: 0 },
-            tint: 0xffccff,
-            // blendMode: 1,
-            frequency: -1
-        }).setDepth(1);
+        // ball.trail = this.add.particles(0, 0, 'particle', {
+        //     lifespan: 380,
+        //     scale: { start: 0.8, end: 0 },
+        //     alpha: { start: 0.04, end: 0 },
+        //     tint: 0xffccff,
+        //     // blendMode: 1,
+        //     frequency: -1
+        // }).setDepth(1);
         // ─────────────────────────────────────────────────────────
         const angle = Phaser.Math.DegToRad(Phaser.Math.Between(25, 65));
         const sx = Phaser.Math.RND.pick([-1, 1]), sy = Phaser.Math.RND.pick([-1, 1]);
@@ -469,47 +469,48 @@ class MainScene extends Phaser.Scene {
             stroke: '#000000', strokeThickness: 5,
             shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true }
         }).setOrigin(0.5).setDepth(3);
-        // rounded-corner mask — T-shapes get two rects; others get one
-        const maskGfx = this.make.graphics({ add: false });
+        // gradient fill — drawn as T-shape rects directly (no geometry mask = no stencil flush per frame)
         const _D = this.BALL_R * 2;
-        const drawMask = (wx, wy) => {
-            maskGfx.clear();
-            maskGfx.fillStyle(0xffffff);
-            const r = 5;
-            if (wallType === 'tDown') {
-                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2, width, _D, r);
-                maskGfx.fillRoundedRect(wx - _D / 2, wy - height / 2 + _D, _D, _D, r);
-            } else if (wallType === 'tUp') {
-                maskGfx.fillRoundedRect(wx - _D / 2, wy - height / 2, _D, _D, r);
-                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2 + _D, width, _D, r);
-            } else if (wallType === 'tLeft') {
-                maskGfx.fillRoundedRect(wx - width / 2, wy - _D / 2, _D, _D, r);
-                maskGfx.fillRoundedRect(wx - width / 2 + _D, wy - height / 2, _D, height, r);
-            } else if (wallType === 'tRight') {
-                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2, _D, height, r);
-                maskGfx.fillRoundedRect(wx - width / 2 + _D, wy - _D / 2, _D, _D, r);
-            } else {
-                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2, width, height, r);
-            }
-        };
-        drawMask(x, y);
-        wall.setMask(maskGfx.createGeometryMask());
-        wall._maskGfx = maskGfx;
-        wall._drawMask = drawMask;
-        wall.on('destroy', () => { if (maskGfx.active) maskGfx.destroy(); });
-
-        // gradient fill — color based on income value, clipped by same mask
+        wall._maskGfx = null;
+        wall._drawMask = () => {};
         const fillGfx = this.add.graphics().setDepth(1);
         const drawFill = (ox, oy) => {
             fillGfx.clear();
             const { top, bot } = this._incomeToColors(wall.incomeValue);
             const fillTop = this._darkenColor(top, 0.32);
             const fillBot = this._darkenColor(bot, 0.45);
-            fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
-            fillGfx.fillRect(ox - width / 2, oy - height / 2, width, height);
+            if (wallType === 'tDown') {
+                const fillMid = this._lerpColor(fillTop, fillBot, 0.5);
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillMid, fillMid, 1);
+                fillGfx.fillRect(ox - width / 2, oy - height / 2, width, _D);
+                fillGfx.fillGradientStyle(fillMid, fillMid, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - _D / 2, oy - height / 2 + _D, _D, _D);
+            } else if (wallType === 'tUp') {
+                const fillMid = this._lerpColor(fillTop, fillBot, 0.5);
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillMid, fillMid, 1);
+                fillGfx.fillRect(ox - _D / 2, oy - height / 2, _D, _D);
+                fillGfx.fillGradientStyle(fillMid, fillMid, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - width / 2, oy - height / 2 + _D, width, _D);
+            } else if (wallType === 'tLeft') {
+                const fillMid1 = this._lerpColor(fillTop, fillBot, 1 / 3);
+                const fillMid2 = this._lerpColor(fillTop, fillBot, 2 / 3);
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - width / 2 + _D, oy - height / 2, _D, height);
+                fillGfx.fillGradientStyle(fillMid1, fillMid1, fillMid2, fillMid2, 1);
+                fillGfx.fillRect(ox - width / 2, oy - _D / 2, _D, _D);
+            } else if (wallType === 'tRight') {
+                const fillMid1 = this._lerpColor(fillTop, fillBot, 1 / 3);
+                const fillMid2 = this._lerpColor(fillTop, fillBot, 2 / 3);
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - width / 2, oy - height / 2, _D, height);
+                fillGfx.fillGradientStyle(fillMid1, fillMid1, fillMid2, fillMid2, 1);
+                fillGfx.fillRect(ox - width / 2 + _D, oy - _D / 2, _D, _D);
+            } else {
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - width / 2, oy - height / 2, width, height);
+            }
         };
         drawFill(x, y);
-        fillGfx.setMask(maskGfx.createGeometryMask());
         wall._fillGfx = fillGfx;
         wall._drawFill = drawFill;
         wall.on('destroy', () => { if (fillGfx.active) fillGfx.destroy(); });
@@ -742,6 +743,10 @@ class MainScene extends Phaser.Scene {
             fontFamily: "'Impact', 'Arial Black', sans-serif",
             fontSize: '16px', fill: '#ffdd44', stroke: '#100e00', strokeThickness: 3
         }).setOrigin(0, 0).setDepth(5);
+        this.fpsText = this.add.text(10, 10, 'FPS: --', {
+            fontFamily: "'Impact'", fontSize: '22px', fill: '#ff4444',
+            stroke: '#000', strokeThickness: 2
+        }).setDepth(100);
         this.muteBtn = this.add.text(748, 112, '🔊', { fontSize: '22px' })
             .setOrigin(1, 0.5).setInteractive({ useHandCursor: true }).setDepth(10);
         this.muteBtn.on('pointerover', () => this.playSound('hover'));
@@ -765,6 +770,61 @@ class MainScene extends Phaser.Scene {
             this.saveProgress();
             this._fadeExit(400, () => this.scene.start('StartScene'));
         });
+
+        // Back-to-editor button (test mode only)
+        if (this.testMode) {
+            const edBtnGfx = this.add.graphics().setDepth(10);
+            const drawEdBtn = (hov) => {
+                edBtnGfx.clear();
+                edBtnGfx.fillStyle(hov ? 0x0e2a14 : 0x081208, 0.95);
+                edBtnGfx.fillRoundedRect(628, 72, 62, 26, 6);
+                edBtnGfx.lineStyle(1.5, hov ? 0x44ff88 : 0x226633, 1);
+                edBtnGfx.strokeRoundedRect(628, 72, 62, 26, 6);
+            };
+            drawEdBtn(false);
+            this.add.text(659, 85, '← РЕД', { fontFamily: "'Impact'", fontSize: '13px', fill: '#44ff88', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5).setDepth(11);
+            const edBtnHit = this.add.rectangle(659, 85, 62, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
+            edBtnHit.on('pointerover', () => drawEdBtn(true));
+            edBtnHit.on('pointerout', () => drawEdBtn(false));
+            edBtnHit.on('pointerdown', () => this.scene.start('EditorScene', { levelNum: this.testLevelNum }));
+
+            // ── DEV spawn buttons ────────────────────────────────────
+            const devBtnStyle = { fontFamily: "'Impact'", fontSize: '13px', fill: '#ffee44', stroke: '#000', strokeThickness: 2 };
+            const makeDevBtn = (label, bx, by, onClick) => {
+                const gfx = this.add.graphics().setDepth(10);
+                const draw = (hov) => {
+                    gfx.clear();
+                    gfx.fillStyle(hov ? 0x2a2200 : 0x111000, 0.95);
+                    gfx.fillRoundedRect(bx, by, 66, 26, 6);
+                    gfx.lineStyle(1.5, hov ? 0xffee44 : 0x665500, 1);
+                    gfx.strokeRoundedRect(bx, by, 66, 26, 6);
+                };
+                draw(false);
+                this.add.text(bx + 33, by + 13, label, devBtnStyle).setOrigin(0.5).setDepth(11);
+                const hit = this.add.rectangle(bx + 33, by + 13, 66, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
+                hit.on('pointerover', () => draw(true));
+                hit.on('pointerout', () => draw(false));
+                hit.on('pointerdown', onClick);
+            };
+
+            makeDevBtn('+МЯCH', 628, 102, () => {
+                this.createBall();
+            });
+
+            const wallTypes = ['block', 'vertical', 'horizontal', 'tDown', 'tUp', 'tLeft', 'tRight'];
+            let _devWallIdx = 0;
+            makeDevBtn('+СТЕНА', 628, 132, () => {
+                const type = wallTypes[_devWallIdx % wallTypes.length];
+                _devWallIdx++;
+                const { w, h } = this.getWallDims(type);
+                const cx = this.fieldOffsetX + this.fieldSize / 2;
+                const cy = this.fieldOffsetY + this.fieldSize / 2;
+                const x = Phaser.Math.Between(cx - 100, cx + 100);
+                const y = Phaser.Math.Between(cy - 100, cy + 100);
+                this.createWall(x, y, w, h, type, Phaser.Math.Between(1, 5));
+            });
+            // ────────────────────────────────────────────────────────
+        }
 
         // ── Hand strip (no label, no wrapper) ────────────────────
         this.returnZoneBg = this.add.rectangle(380, this.slotY, 740, 160, 0x0e1a27, 0);
@@ -1703,6 +1763,7 @@ class MainScene extends Phaser.Scene {
                 wall.incomeValue = newVal;
                 if (wall.valueText && wall.valueText.active) wall.valueText.setText(`${newVal}$`);
             }
+            wall._cachedRects = null;
             wall.setPosition(fx, fy);
             wall.setDepth(0);
             if (wall._drawMask) wall._drawMask(fx, fy);
@@ -2010,33 +2071,28 @@ class MainScene extends Phaser.Scene {
     // ──── Physics ────
 
     _getWallCollisionRects(wall) {
+        if (wall._cachedRects) return wall._cachedRects;
         const D = this.BALL_R * 2;
         const wx = wall.x, wy = wall.y;
+        let rects;
         if (wall.wallType === 'tDown') {
-            return [
-                { x: wx, y: wy - D / 2, hw: wall.width / 2, hh: D / 2 },
-                { x: wx, y: wy + D / 2, hw: D / 2, hh: D / 2 }
-            ];
+            rects = [{ x: wx, y: wy - D / 2, hw: wall.width / 2, hh: D / 2 }, { x: wx, y: wy + D / 2, hw: D / 2, hh: D / 2 }];
         } else if (wall.wallType === 'tUp') {
-            return [
-                { x: wx, y: wy - D / 2, hw: D / 2, hh: D / 2 },
-                { x: wx, y: wy + D / 2, hw: wall.width / 2, hh: D / 2 }
-            ];
+            rects = [{ x: wx, y: wy - D / 2, hw: D / 2, hh: D / 2 }, { x: wx, y: wy + D / 2, hw: wall.width / 2, hh: D / 2 }];
         } else if (wall.wallType === 'tLeft') {
-            return [
-                { x: wx - D / 2, y: wy, hw: D / 2, hh: D / 2 },
-                { x: wx + D / 2, y: wy, hw: D / 2, hh: wall.height / 2 }
-            ];
+            rects = [{ x: wx - D / 2, y: wy, hw: D / 2, hh: D / 2 }, { x: wx + D / 2, y: wy, hw: D / 2, hh: wall.height / 2 }];
         } else if (wall.wallType === 'tRight') {
-            return [
-                { x: wx - D / 2, y: wy, hw: D / 2, hh: wall.height / 2 },
-                { x: wx + D / 2, y: wy, hw: D / 2, hh: D / 2 }
-            ];
+            rects = [{ x: wx - D / 2, y: wy, hw: D / 2, hh: wall.height / 2 }, { x: wx + D / 2, y: wy, hw: D / 2, hh: D / 2 }];
+        } else {
+            rects = [{ x: wx, y: wy, hw: wall.width / 2, hh: wall.height / 2 }];
         }
-        return [{ x: wx, y: wy, hw: wall.width / 2, hh: wall.height / 2 }];
+        // Only cache when wall is not being actively dragged
+        if (wall !== this._carryingFieldWall) wall._cachedRects = rects;
+        return rects;
     }
 
-    update() {
+    update(time, delta) {
+        if (this.fpsText) this.fpsText.setText('FPS: ' + Math.round(1000 / delta));
         const r = Math.round(this.BALL_R * 0.9);
         const minX = this.fieldOffsetX + r, maxX = this.fieldOffsetX + this.fieldSize - r;
         const minY = this.fieldOffsetY + r, maxY = this.fieldOffsetY + this.fieldSize - r;
@@ -2050,7 +2106,7 @@ class MainScene extends Phaser.Scene {
             if (ball._multLabel && ball._multLabel.active) ball._multLabel.setPosition(ball.x, ball.y);
 
             // emit trail particles at exact ball position
-            if (ball.trail) ball.trail.explode(2, ball.x, ball.y);
+            if (ball.trail) ball.trail.explode(1, ball.x, ball.y);
             // specular highlight
             this._ballOverlayGfx.fillStyle(0xffffff, 0.55);
             this._ballOverlayGfx.fillCircle(ball.x - r * 0.28, ball.y - r * 0.3, r * 0.27);
@@ -2059,26 +2115,34 @@ class MainScene extends Phaser.Scene {
             const _snd = () => { const now = this.time.now; if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('hit'); } };
             if (ball.x < minX) {
                 ball.setX(minX); ball.body.setVelocityX(Math.abs(ball.body.velocity.x));
-                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                ball.currentSpeed = ball.bounceSpeed;
                 this._squishBall(ball, 0.55, 1.45); _snd();
             } else if (ball.x > maxX) {
                 ball.setX(maxX); ball.body.setVelocityX(-Math.abs(ball.body.velocity.x));
-                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                ball.currentSpeed = ball.bounceSpeed;
                 this._squishBall(ball, 0.55, 1.45); _snd();
             }
             if (ball.y < minY) {
                 ball.setY(minY); ball.body.setVelocityY(Math.abs(ball.body.velocity.y));
-                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                ball.currentSpeed = ball.bounceSpeed;
                 this._squishBall(ball, 1.45, 0.55); _snd();
             } else if (ball.y > maxY) {
                 ball.setY(maxY); ball.body.setVelocityY(-Math.abs(ball.body.velocity.y));
-                ball.currentSpeed = Math.min(ball.currentSpeed * 1.1, ball.bounceSpeed * 2.0);
+                ball.currentSpeed = ball.bounceSpeed;
                 this._squishBall(ball, 1.45, 0.55); _snd();
             }
 
-            // wall collision — T-walls use 2 rects, others 1
-            this.wallsGroup.children.iterate(wall => {
-                if (!wall) return;
+            // wall collision — T-walls use 2 rects, others 1; slow-zone check merged here
+            let _newInSlowZone = false;
+            const _wallEntries = this.wallsGroup.children.entries;
+            for (let _wi = 0, _wl = _wallEntries.length; _wi < _wl; _wi++) {
+                const wall = _wallEntries[_wi];
+                if (!wall) continue;
+                if (wall.specialType === 'slow') {
+                    const _shw = wall.width / 2, _shh = wall.height / 2;
+                    if (ball.x >= wall.x - _shw && ball.x <= wall.x + _shw && ball.y >= wall.y - _shh && ball.y <= wall.y + _shh) _newInSlowZone = true;
+                    continue;
+                }
                 const rects = this._getWallCollisionRects(wall);
                 let hitNx = 0, hitNy = -1, hitOverlap = 0, didHit = false;
                 for (const rect of rects) {
@@ -2090,7 +2154,7 @@ class MainScene extends Phaser.Scene {
                     hitNx = dist > 0 ? dx / dist : 0; hitNy = dist > 0 ? dy / dist : -1;
                     hitOverlap = r - dist; didHit = true; break;
                 }
-                if (!didHit) return;
+                if (!didHit) continue;
                 const isPassThrough = wall.specialType === 'trap' || wall.specialType === 'slow';
                 if (!isPassThrough) {
                     ball.setPosition(ball.x + hitNx * hitOverlap, ball.y + hitNy * hitOverlap);
@@ -2111,10 +2175,10 @@ class MainScene extends Phaser.Scene {
                         this._incomeWindow.push({ t: now, v: _earned });
                         wall.wallTotalEarned = (wall.wallTotalEarned || 0) + _earned;
                         (wall._wallIncWin = wall._wallIncWin || []).push({ t: now, v: _earned });
-                        ball.currentSpeed = Math.min(ball.currentSpeed * 1.35, ball.bounceSpeed * 2.0);
+                        ball.currentSpeed = ball.bounceSpeed;
                         if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('wallhit'); }
                         if (wall.valueText && wall.valueText.active) { this.tweens.killTweensOf(wall.valueText); this.tweens.add({ targets: wall.valueText, scaleX: 1.4, scaleY: 1.4, duration: 75, yoyo: true, ease: 'Power2', onComplete: () => { if (wall.valueText && wall.valueText.active) wall.valueText.setScale(1); } }); }
-                        this.updateUI();
+                        this._uiDirty = true;
                     }
                 }
                 if (wall.incomeValue > 0 && now - (wall.lastFloat || 0) >= 180) {
@@ -2136,10 +2200,10 @@ class MainScene extends Phaser.Scene {
                         wall.totalTaken = (wall.totalTaken || 0) + loss;
                         (wall._trapWindow = wall._trapWindow || []).push({ t: now, v: loss });
                         this.showFloatingText(wall.x, wall.y, `-${loss}$`, -1);
-                        this.updateUI();
+                        this._uiDirty = true;
                     }
                 }
-            });
+            } // end wall for-loop
 
             // Zone collision — zones are now solid bouncing obstacles
             if (this.zones) {
@@ -2166,14 +2230,11 @@ class MainScene extends Phaser.Scene {
             // decay
             if (ball.currentSpeed > ball.bounceSpeed)
                 ball.currentSpeed = Math.max(ball.currentSpeed * 0.985, ball.bounceSpeed);
-            // slow zone: check if ball is inside any slow wall this frame
-            let _newInSlowZone = false;
-            this.wallsGroup.children.iterate(w => { if (!w || w.specialType !== 'slow') return; const _shw = w.width / 2, _shh = w.height / 2; if (ball.x >= w.x - _shw && ball.x <= w.x + _shw && ball.y >= w.y - _shh && ball.y <= w.y + _shh) _newInSlowZone = true; });
             if (_newInSlowZone !== !!ball._inSlowZone) { if (!_newInSlowZone) ball._slowExitTime = this.time.now; else this.playSound('freeze'); ball._inSlowZone = _newInSlowZone; }
             const _slowMult = ball._inSlowZone ? 0.25 : (ball._slowExitTime && (this.time.now - ball._slowExitTime) < 500 ? 0.25 + 0.75 * Math.min(1, (this.time.now - ball._slowExitTime) / 500) : 1);
             const vel = ball.body.velocity, spd = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
             const _isSlowed = _slowMult < 1.0;
-            if (spd > 0) { const ts = (this._physicsSpeedMult || 1) * _slowMult; ball.body.setVelocity(vel.x / spd * ball.currentSpeed * ts, vel.y / spd * ball.currentSpeed * ts); }
+            if (spd > 0) { const ts = (this._physicsSpeedMult || 1) * _slowMult; const tspd = ball.currentSpeed * ts; if (Math.abs(spd - tspd) > tspd * 0.02) ball.body.setVelocity(vel.x / spd * tspd, vel.y / spd * tspd); }
             if (_isSlowed && !ball._isTinted) {
                 ball._isTinted = true;
                 ball._slowAngle = 0;
@@ -2214,7 +2275,7 @@ class MainScene extends Phaser.Scene {
             if (_isSlowed && ball._slowEmitter && ball._slowEmitter.active) {
                 ball._slowEmitter.setPosition(ball.x, ball.y);
             }
-            if (_isSlowed && ball._slowGfx && ball._slowGfx.active) {
+            if (_isSlowed && ball._slowGfx && ball._slowGfx.active && this._frameCount % 2 === 0) {
                 ball._slowAngle = (ball._slowAngle || 0) + 0.08;
                 const _R = Math.round(this.BALL_R * 0.9) + 4;
                 ball._slowGfx.clear();
@@ -2266,6 +2327,8 @@ class MainScene extends Phaser.Scene {
                 ball.body.setVelocity(sx * Math.cos(a) * ball.bounceSpeed, sy * Math.sin(a) * ball.bounceSpeed);
             }
         });
+
+        if (this._uiDirty) { this._uiDirty = false; this.updateUI(); }
     }
 
     _showWallTooltip(wall) {
@@ -3218,7 +3281,7 @@ class LevelSelectScene extends Phaser.Scene {
 }
 
 const config = {
-    type: Phaser.AUTO,
+    type: Phaser.WEBGL,
     width: 760, height: 870,
     backgroundColor: '#0b1520',
     parent: 'game-container',
