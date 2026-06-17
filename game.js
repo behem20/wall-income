@@ -161,7 +161,7 @@ class MainScene extends Phaser.Scene {
         });
         this.zones = [];
         this.time.addEvent({ delay: 1000, loop: true, callback: () => this._updateZones() });
-        this._ballOverlayGfx = this.add.graphics().setDepth(3);
+        this._ballOverlayGfx = null;
         this._genParticleTexture();
         this._genWallDustTexture();
         this._genStarTexture();
@@ -435,6 +435,10 @@ class MainScene extends Phaser.Scene {
         const angle = Phaser.Math.DegToRad(Phaser.Math.Between(25, 65));
         const sx = Phaser.Math.RND.pick([-1, 1]), sy = Phaser.Math.RND.pick([-1, 1]);
         ball.body.setVelocity(sx * Math.cos(angle) * 400, sy * Math.sin(angle) * 400);
+        const _hr = Math.max(1, Math.round(R * 0.27));
+        ball._highlight = this.add.arc(ball.x - R * 0.28, ball.y - R * 0.3, _hr)
+            .setFillStyle(0xffffff, 0.55).setDepth(4);
+        ball.on('destroy', () => { if (ball._highlight && ball._highlight.active) ball._highlight.destroy(); });
         this.ballsGroup.add(ball);
     }
 
@@ -586,10 +590,10 @@ class MainScene extends Phaser.Scene {
             shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true }
         }).setOrigin(0.5).setDepth(20);
         this.tweens.add({
-            targets: t, y: y - 55, scaleX: { from: 0, to: 1 }, duration: 550, ease: 'Power1',
+            targets: t, y: y - 40, scaleX: { from: 0, to: 1 }, duration: 380, ease: 'Power1',
             onComplete: () => {
                 if (t && t.active)
-                    this.tweens.add({ targets: t, y: '-=25', alpha: 0, duration: 500, ease: 'Power2', onComplete: () => t.destroy() });
+                    this.tweens.add({ targets: t, y: '-=18', alpha: 0, duration: 320, ease: 'Power2', onComplete: () => t.destroy() });
             }
         });
     }
@@ -2097,19 +2101,15 @@ class MainScene extends Phaser.Scene {
         const minX = this.fieldOffsetX + r, maxX = this.fieldOffsetX + this.fieldSize - r;
         const minY = this.fieldOffsetY + r, maxY = this.fieldOffsetY + this.fieldSize - r;
 
-        this._ballOverlayGfx.clear();
-
         this.ballsGroup.children.iterate(ball => {
             if (!ball || !ball.body) return;
             if (!ball.currentSpeed) ball.currentSpeed = ball.bounceSpeed;
 
             if (ball._multLabel && ball._multLabel.active) ball._multLabel.setPosition(ball.x, ball.y);
+            if (ball._highlight && ball._highlight.active) ball._highlight.setPosition(ball.x - r * 0.28, ball.y - r * 0.3);
 
             // emit trail particles at exact ball position
             if (ball.trail) ball.trail.explode(1, ball.x, ball.y);
-            // specular highlight
-            this._ballOverlayGfx.fillStyle(0xffffff, 0.55);
-            this._ballOverlayGfx.fillCircle(ball.x - r * 0.28, ball.y - r * 0.3, r * 0.27);
 
             // boundaries
             const _snd = () => { const now = this.time.now; if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('hit'); } };
@@ -2177,11 +2177,11 @@ class MainScene extends Phaser.Scene {
                         (wall._wallIncWin = wall._wallIncWin || []).push({ t: now, v: _earned });
                         ball.currentSpeed = ball.bounceSpeed;
                         if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('wallhit'); }
-                        if (wall.valueText && wall.valueText.active) { this.tweens.killTweensOf(wall.valueText); this.tweens.add({ targets: wall.valueText, scaleX: 1.4, scaleY: 1.4, duration: 75, yoyo: true, ease: 'Power2', onComplete: () => { if (wall.valueText && wall.valueText.active) wall.valueText.setScale(1); } }); }
+                        if (wall.valueText && wall.valueText.active && !wall._scalePending) { wall._scalePending = true; this.tweens.add({ targets: wall.valueText, scaleX: 1.4, scaleY: 1.4, duration: 75, yoyo: true, ease: 'Power2', onComplete: () => { wall._scalePending = false; if (wall.valueText && wall.valueText.active) wall.valueText.setScale(1); } }); }
                         this._uiDirty = true;
                     }
                 }
-                if (wall.incomeValue > 0 && now - (wall.lastFloat || 0) >= 180) {
+                if (wall.incomeValue > 0 && now - (wall.lastFloat || 0) >= 500) {
                     wall.lastFloat = now;
                     const _fv = wall.incomeValue * (ball.multiplier || 1);
                     this.showFloatingText(wall.x, wall.y, `${_fv}$`, _fv);
@@ -2237,8 +2237,6 @@ class MainScene extends Phaser.Scene {
             if (spd > 0) { const ts = (this._physicsSpeedMult || 1) * _slowMult; const tspd = ball.currentSpeed * ts; if (Math.abs(spd - tspd) > tspd * 0.02) ball.body.setVelocity(vel.x / spd * tspd, vel.y / spd * tspd); }
             if (_isSlowed && !ball._isTinted) {
                 ball._isTinted = true;
-                ball._slowAngle = 0;
-                ball._slowGfx = this.add.graphics().setDepth(2.5);
                 ball._slowTween = this.tweens.addCounter({
                     from: 0, to: 100, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
                     onUpdate: tw => {
@@ -2267,36 +2265,12 @@ class MainScene extends Phaser.Scene {
             } else if (!_isSlowed && ball._isTinted) {
                 ball._isTinted = false;
                 if (ball._slowTween) { try { ball._slowTween.stop(); } catch (e) { } ball._slowTween = null; }
-                if (ball._slowGfx) { try { ball._slowGfx.destroy(); } catch (e) { } ball._slowGfx = null; }
                 if (ball._slowEmitter) { try { ball._slowEmitter.destroy(); } catch (e) { } ball._slowEmitter = null; }
                 ball.setFillStyle(0xf01cff);
                 ball.setStrokeStyle(1, 0xf8ae0f);
             }
             if (_isSlowed && ball._slowEmitter && ball._slowEmitter.active) {
                 ball._slowEmitter.setPosition(ball.x, ball.y);
-            }
-            if (_isSlowed && ball._slowGfx && ball._slowGfx.active && this._frameCount % 2 === 0) {
-                ball._slowAngle = (ball._slowAngle || 0) + 0.08;
-                const _R = Math.round(this.BALL_R * 0.9) + 4;
-                ball._slowGfx.clear();
-                ball._slowGfx.lineStyle(1.5, 0x88ddff, 0.5);
-                ball._slowGfx.strokeCircle(ball.x, ball.y, _R);
-                ball._slowGfx.lineStyle(2.5, 0xffffff, 0.9);
-                ball._slowGfx.beginPath();
-                ball._slowGfx.arc(ball.x, ball.y, _R, ball._slowAngle, ball._slowAngle + Math.PI * 1.2, false);
-                ball._slowGfx.strokePath();
-                for (let _fi = 0; _fi < 4; _fi++) {
-                    const _fAng = ball._slowAngle * 0.6 + (_fi / 4) * Math.PI * 2;
-                    const _fR = _R + 5 + Math.sin(ball._slowAngle * 1.5 + _fi) * 3;
-                    const _fx = ball.x + Math.cos(_fAng) * _fR, _fy = ball.y + Math.sin(_fAng) * _fR;
-                    const _fs = 3;
-                    ball._slowGfx.lineStyle(1.5, 0xaaddff, 0.85);
-                    ball._slowGfx.lineBetween(_fx - _fs, _fy, _fx + _fs, _fy);
-                    ball._slowGfx.lineBetween(_fx, _fy - _fs, _fx, _fy + _fs);
-                    ball._slowGfx.lineStyle(1, 0xffffff, 0.65);
-                    ball._slowGfx.lineBetween(_fx - _fs * 0.7, _fy - _fs * 0.7, _fx + _fs * 0.7, _fy + _fs * 0.7);
-                    ball._slowGfx.lineBetween(_fx + _fs * 0.7, _fy - _fs * 0.7, _fx - _fs * 0.7, _fy + _fs * 0.7);
-                }
             }
 
             // Zone crossing detection
