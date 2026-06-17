@@ -6,6 +6,7 @@ class MainScene extends Phaser.Scene {
         this.customWalls = (data && data.customWalls) || null;
         this.testMode = !!(data && data.testMode);
         this.testLevelNum = (data && data.levelNum) || null;
+        this.lightTheme = !!(data && data.lightTheme);
         const resumeKey = this.infiniteMode ? 'bumper_save_infinite' : 'bumper_save_normal';
         try {
             const raw = this.testMode ? null : localStorage.getItem(resumeKey);
@@ -81,7 +82,13 @@ class MainScene extends Phaser.Scene {
         this.incomeCost = 50; this.gameWon = false;
         this.draggingNewWall = false; this.draggingSlotIndex = -1;
         this.draggingWallType = null; this.draggingIncomeValue = 0;
-        this.muted = false; this._audioCtx = null; this._lastHitSound = 0;
+        this.muted = false; this._audioCtx = null; this._lastHitSound = 0; this._freezeBuffer = null;
+        // load freeze.wav asynchronously via Web Audio API
+        try {
+            const _ctx = new (window.AudioContext || window.webkitAudioContext)();
+            this._audioCtx = _ctx;
+            fetch('freeze.wav').then(r => r.arrayBuffer()).then(ab => _ctx.decodeAudioData(ab)).then(buf => { this._freezeBuffer = buf; }).catch(() => {});
+        } catch (e) {}
         this._musicStarted = false; this._musicGain = null; this._musicTimeout = null;
         this._physicsSpeedMult = 1;
         this._incomeWindow = [];
@@ -96,16 +103,46 @@ class MainScene extends Phaser.Scene {
         // field bg — checkerboard pattern
         const _fieldGfx = this.add.graphics();
         const _cs = 28; // 392 / 28 = 14 cells
-        for (let r = 0; r < 14; r++) {
-            for (let c = 0; c < 14; c++) {
-                // _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0x1835ed : 0xB9DEFF, 1);
-                _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0x333333 : 0x000000, 1);
-                _fieldGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
-            }
+        if (this.lightTheme) {
+            for (let r = 0; r < 14; r++)
+                for (let c = 0; c < 14; c++) {
+                    _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0xb8cce0 : 0xdceaf8, 1);
+                    _fieldGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
+                }
+            _fieldGfx.lineStyle(4, 0x2255cc, 1);
+            _fieldGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
+        } else {
+            for (let r = 0; r < 14; r++)
+                for (let c = 0; c < 14; c++) {
+                    _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0x333333 : 0x000000, 1);
+                    _fieldGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
+                }
+            _fieldGfx.lineStyle(4, 0x8855dd, 1);
+            _fieldGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         }
-        _fieldGfx.lineStyle(4, 0x8855dd, 1);//0x8855dd
-        _fieldGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
 
+        // Smooth rounded glow border around the game field
+        const _glowGfx = this.add.graphics().setDepth(0.2);
+        const _gx = this.fieldOffsetX, _gy = this.fieldOffsetY, _gs = this.fieldSize;
+        const _glowColor = this.lightTheme ? 0x2255cc : 0x9966ff;
+        const _glowN = 30;
+        for (let _i = 0; _i < _glowN; _i++) {
+            const _spread = (_glowN - _i) * 1.7;
+            const _t = _i / (_glowN - 1);
+            const _a = 0.42 * _t * _t * _t;
+            const _r = 6 + _spread * 0.35;
+            _glowGfx.lineStyle(2, _glowColor, _a);
+            _glowGfx.strokeRoundedRect(_gx - _spread, _gy - _spread, _gs + _spread * 2, _gs + _spread * 2, _r);
+        }
+
+        if (this.lightTheme) {
+            this.cameras.main.setBackgroundColor('#f5e8a8');
+            document.body.style.background = '#f5e8a8';
+        }
+        this.events.once('shutdown', () => {
+            document.body.style.transition = '';
+            document.body.style.background = '';
+        });
         this._genCheckerTexture();
         this.physics.world.setBounds(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         this.wallsGroup = this.physics.add.staticGroup();
@@ -114,7 +151,8 @@ class MainScene extends Phaser.Scene {
             [b1, b2].forEach(b => {
                 const vel = b.body.velocity;
                 const spd = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
-                const ts = (this._physicsSpeedMult || 1) * (b._slowUntil && this.time.now < b._slowUntil ? 0.3 : 1);
+                const _bSlowMult = b._inSlowZone ? 0.25 : (b._slowExitTime && (this.time.now - b._slowExitTime) < 500 ? 0.25 + 0.75 * Math.min(1, (this.time.now - b._slowExitTime) / 500) : 1);
+                const ts = (this._physicsSpeedMult || 1) * _bSlowMult;
                 if (spd > 0) b.body.setVelocity(vel.x / spd * b.currentSpeed * ts, vel.y / spd * b.currentSpeed * ts);
             });
             const now = this.time.now;
@@ -140,6 +178,8 @@ class MainScene extends Phaser.Scene {
             this.customWalls.forEach(cw => {
                 if (cw.specialType === 'zone') {
                     this._createZone(cw.x, cw.y, D, D);
+                } else if (cw.specialType === 'income') {
+                    this.createWall(cw.x, cw.y, D, D, 'block', Phaser.Math.Between(1, 3));
                 } else {
                     const wall = this.createWall(cw.x, cw.y, D, D, 'block', 0);
                     wall.incomeValue = 0;
@@ -149,7 +189,7 @@ class MainScene extends Phaser.Scene {
                 }
             });
         }
-        if (this.zones && this.zones.length) this._scheduleZoneRelocation();
+        if (this.zones && this.zones.length && !this.customWalls) this._scheduleZoneRelocation();
         // Restore saved progress if resuming
         if (this.resumeData) this._applyResumeData(this.resumeData);
         // Auto-save and stop music on scene shutdown
@@ -270,6 +310,8 @@ class MainScene extends Phaser.Scene {
                 case 'place': { const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = 'sine'; o.frequency.value = 440; g.gain.setValueAtTime(0.09, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09); o.start(t); o.stop(t + 0.09); break; }
                 case 'return': { const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = 'sine'; o.frequency.setValueAtTime(520, t); o.frequency.exponentialRampToValueAtTime(280, t + 0.13); g.gain.setValueAtTime(0.1, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15); o.start(t); o.stop(t + 0.15); break; }
                 case 'error': { const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = 'sawtooth'; o.frequency.value = 140; g.gain.setValueAtTime(0.09, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2); o.start(t); o.stop(t + 0.2); break; }
+                case 'freeze': { if (!this._freezeBuffer) break; const _fs = ctx.createBufferSource(); _fs.buffer = this._freezeBuffer; const _fg = ctx.createGain(); _fs.connect(_fg); _fg.connect(ctx.destination); _fg.gain.setValueAtTime(0.55, t); _fs.start(t); break; }
+                case 'trap': { for (let _pi = 0; _pi < 3; _pi++) { const _dt = _pi * 0.072, _dur = 0.09; const _buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * _dur), ctx.sampleRate); const _d = _buf.getChannelData(0); for (let _j = 0; _j < _d.length; _j++) _d[_j] = Math.random() * 2 - 1; const _src = ctx.createBufferSource(); _src.buffer = _buf; const _hi = ctx.createBiquadFilter(); _hi.type = 'highpass'; _hi.frequency.value = 3200 + _pi * 400; const _g = ctx.createGain(); _src.connect(_hi); _hi.connect(_g); _g.connect(ctx.destination); _g.gain.setValueAtTime(0.16, t + _dt); _g.gain.exponentialRampToValueAtTime(0.001, t + _dt + _dur); _src.start(t + _dt); _src.stop(t + _dt + _dur + 0.01); } break; }
                 case 'bonus': { [520, 780, 1100, 1560, 2100].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(), dt = i * 0.052; o.connect(g); g.connect(ctx.destination); o.type = i < 3 ? 'sine' : 'triangle'; o.frequency.setValueAtTime(f, t + dt); o.frequency.exponentialRampToValueAtTime(f * 1.08, t + dt + 0.14); g.gain.setValueAtTime(0, t + dt); g.gain.linearRampToValueAtTime(0.1, t + dt + 0.018); g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.2); o.start(t + dt); o.stop(t + dt + 0.21); }); break; }
                 case 'win': {
                     const fanfare = [523, 659, 784, 659, 784, 1047, 1319, 1568, 2093];
@@ -721,8 +763,7 @@ class MainScene extends Phaser.Scene {
         menuHit.on('pointerout', () => drawMenuBtn(false));
         menuHit.on('pointerdown', () => {
             this.saveProgress();
-            this.cameras.main.fade(400, 0, 0, 0);
-            this.time.delayedCall(400, () => this.scene.start('StartScene'));
+            this._fadeExit(400, () => this.scene.start('StartScene'));
         });
 
         // ── Hand strip (no label, no wrapper) ────────────────────
@@ -989,10 +1030,11 @@ class MainScene extends Phaser.Scene {
             };
             wall._drawMask(wall.x, wall.y);
         }
+        const _fillA = (specialType === 'trap' || specialType === 'slow') ? 0.3 : 1;
         wall._drawFill = (ox, oy) => {
             if (!wall._fillGfx || !wall._fillGfx.active) return;
             wall._fillGfx.clear();
-            wall._fillGfx.fillGradientStyle(colors.fill, colors.fill, colors.fillB, colors.fillB, 1);
+            wall._fillGfx.fillGradientStyle(colors.fill, colors.fill, colors.fillB, colors.fillB, _fillA);
             wall._fillGfx.fillRect(ox - wall.width / 2, oy - wall.height / 2, wall.width, wall.height);
         };
         wall._drawFill(wall.x, wall.y);
@@ -1004,66 +1046,49 @@ class MainScene extends Phaser.Scene {
         };
         wall._drawOutline(wall.x, wall.y);
         if (wall._iconGfx) { try { wall._iconGfx.destroy(); } catch (e) { } wall._iconGfx = null; }
+        // Hide fill + outline for pass-through zones (they look like fields, not walls)
         if (specialType === 'trap' || specialType === 'slow') {
-            const ig = this.add.graphics().setDepth(1.5);
+            if (wall._fillGfx) { wall._fillGfx.setDepth(0.8); wall._fillGfx.setAlpha(0); }
+            if (wall._outlineGfx) { wall._outlineGfx.setDepth(1.1); wall._outlineGfx.setAlpha(0); }
+        }
+        if (specialType === 'trap' || specialType === 'slow') {
+            const ig = this.add.graphics().setDepth(1.2);
             wall._iconGfx = ig;
             wall.on('destroy', () => { if (ig && ig.active) ig.destroy(); });
             const cx = wall.x, cy = wall.y, hr = wall.width / 2 - 6;
             if (specialType === 'trap') {
-                ig.lineStyle(3, 0xff2222, 0.65);
-                ig.lineBetween(cx - hr, cy - hr, cx + hr, cy + hr);
-                ig.lineBetween(cx + hr, cy - hr, cx - hr, cy + hr);
-                ig.lineStyle(2, 0xff4444, 0.45);
-                ig.strokeCircle(cx, cy, 5);
                 if (wall._fireEmitter) { try { wall._fireEmitter.destroy(); } catch (e) { } }
                 const _hw = wall.width / 2, _hh = wall.height / 2;
                 const _fe = this.add.particles(wall.x, wall.y, 'luz', {
-                    lifespan: 270,
-                    frequency: 40,
-                    quantity: 5,
-                    blendMode: 'ADD',
-                    gravityY: 20,
-                    speedX: { min: 0, max: 0 },
-                    speedY: { min: -180, max: 0 },
-                    scale: { start: 0.62, end: 0.46 },
-                    tint: [0xb58608, 0xaa3a16, 0xff0000, 0xd46a0d],
+                    lifespan: 270, frequency: 40, quantity: 5, blendMode: 'ADD',
+                    gravityY: 20, speedX: { min: 0, max: 0 }, speedY: { min: -180, max: 0 },
+                    scale: { start: 0.62, end: 0.46 }, tint: [0xb58608, 0xaa3a16, 0xff0000, 0xd46a0d],
                     alpha: { start: 1, end: 0.34 },
-                    emitZone: [{
-                        quantity: 32, type: 'edge', total: 32, yoyo: true,
-                        source: new Phaser.Geom.Triangle(-_hw, _hh, _hw, _hh, 0, -_hh)
-                    }]
+                    emitZone: [{ quantity: 32, type: 'edge', total: 32, yoyo: true, source: new Phaser.Geom.Triangle(-_hw, _hh, _hw, _hh, 0, -_hh) }]
                 }).setDepth(3.5);
                 wall._fireEmitter = _fe;
                 wall.on('destroy', () => { if (_fe && _fe.active) _fe.destroy(); });
+                if (wall._fireEmitter2) { try { wall._fireEmitter2.destroy(); } catch (e) { } }
+                const _fe2 = this.add.particles(wall.x, wall.y, 'luz', {
+                    lifespan: 620, frequency: 730, quantity: 22, blendMode: 'ADD',
+                    speed: { min: 20, max: Math.max(_hw, _hh) * 4.5 },
+                    scale: { start: 1.1, end: 2.0 }, rotate: { start: 0, end: 360 },
+                    tint: [0xc97317, 0xffc90e, 0xa62f05, 0xc20003, 0xdb5f22],
+                    alpha: { start: 1, end: 0 }
+                }).setDepth(3.6);
+                wall._fireEmitter2 = _fe2;
+                wall.on('destroy', () => { if (_fe2 && _fe2.active) _fe2.destroy(); });
             } else {
-                const arms = 6;
-                ig.lineStyle(1.5, 0x88ccff, 0.75);
-                for (let i = 0; i < arms; i++) {
-                    const ang = (i / arms) * Math.PI * 2;
-                    const ex = cx + Math.cos(ang) * hr, ey = cy + Math.sin(ang) * hr;
-                    ig.lineBetween(cx, cy, ex, ey);
-                    const mx = cx + Math.cos(ang) * hr * 0.5, my = cy + Math.sin(ang) * hr * 0.5;
-                    const pa = ang + Math.PI / 2;
-                    ig.lineBetween(mx - Math.cos(pa) * 4, my - Math.sin(pa) * 4, mx + Math.cos(pa) * 4, my + Math.sin(pa) * 4);
-                }
-                ig.lineStyle(1.5, 0xaaddff, 0.55);
-                ig.strokeCircle(cx, cy, 3);
+                // slow zone: no border, no snowflake icon
+                if (wall._outlineGfx) wall._outlineGfx.setAlpha(0);
+                if (wall._miniSnowGfx) { wall._miniSnowGfx.forEach(g => { try { g.destroy(); } catch (e) { } }); wall._miniSnowGfx = []; }
                 if (wall._snowEmitter) { try { wall._snowEmitter.destroy(); } catch (e) { } }
                 const _se = this.add.particles(wall.x, wall.y, 'star', {
-                    lifespan: 270,
-                    frequency: 40,
-                    quantity: 5,
-                    blendMode: 'ADD',
-                    gravityY: -10,
-                    speedX: { min: -80, max: 80 },
-                    speedY: { min: -80, max: 80 },
-                    scale: { start: 1.5, end: 0.23 },
-                    rotate: { start: 0, end: 360 },
+                    lifespan: 270, frequency: 40, quantity: 5, blendMode: 'ADD',
+                    gravityY: -10, speedX: { min: -80, max: 80 }, speedY: { min: -80, max: 80 },
+                    scale: { start: 1.5, end: 0.23 }, rotate: { start: 0, end: 360 },
                     tint: [0x88ccff, 0xffffff, 0x00aaff],
-                    emitZone: [{
-                        quantity: 32, type: 'edge', total: 32, yoyo: false,
-                        source: new Phaser.Geom.Ellipse(0, 0, wall.width + 8, wall.height + 8)
-                    }]
+                    emitZone: [{ quantity: 32, type: 'edge', total: 32, yoyo: false, source: new Phaser.Geom.Ellipse(0, 0, wall.width + 8, wall.height + 8) }]
                 }).setDepth(3.5);
                 wall._snowEmitter = _se;
                 wall.on('destroy', () => { if (_se && _se.active) _se.destroy(); });
@@ -1075,11 +1100,9 @@ class MainScene extends Phaser.Scene {
                 wall.trapDamage = _dmg;
                 wall.totalTaken = wall.totalTaken || 0;
                 wall._trapWindow = wall._trapWindow || [];
-                wall.valueText.setText(`-${_dmg}$`);
-                wall.valueText.setStyle({ fontSize: '15px', fill: '#ff6666', stroke: '#330000', strokeThickness: 4 });
+                wall.valueText.setText('');
             } else if (specialType === 'slow') {
-                wall.valueText.setText('❄');
-                wall.valueText.setStyle({ fontSize: '24px', fill: '#aaddff', stroke: '#001133', strokeThickness: 5 });
+                wall.valueText.setText('');
             } else {
                 wall.valueText.setText('');
             }
@@ -1095,14 +1118,14 @@ class MainScene extends Phaser.Scene {
         const diamond = [{ x, y: y - hh }, { x: x + hw, y }, { x, y: y + hh }, { x: x - hw, y }];
 
         const gfx = this.add.graphics().setDepth(0.5);
-        gfx.fillStyle(0xffdd00, 0.13);
+        gfx.fillStyle(0xffdd00, 0.45);
         gfx.fillPoints(diamond, true);
-        gfx.lineStyle(1.5, 0xffee55, 0.38);
+        gfx.lineStyle(2, 0xffee55, 0.85);
         gfx.strokePoints(diamond, true);
 
         // Pulsing ring (scale-only so fade-in/out alpha doesn't conflict)
         const ring = this.add.circle(x, y, Math.min(w, h) / 2, 0xffcc00, 0)
-            .setStrokeStyle(2, 0xffdd22).setAlpha(0.55).setDepth(0.55);
+            .setStrokeStyle(2.5, 0xffdd22).setAlpha(0.9).setDepth(0.55);
         this.tweens.add({
             targets: ring,
             scale: { from: 0.05, to: 1.25 },
@@ -1114,11 +1137,11 @@ class MainScene extends Phaser.Scene {
 
         const iconText = this.add.text(x, y, '◆', {
             fontFamily: "'Impact'", fontSize: '16px', fill: '#ffdd44', stroke: '#1a1000', strokeThickness: 3
-        }).setOrigin(0.5).setDepth(1.8);
+        }).setOrigin(0.5).setDepth(0.55);
 
         const txt = this.add.text(x, y + 10, '…$/s', {
             fontFamily: "'Impact'", fontSize: '11px', fill: '#ffee88', stroke: '#1a1000', strokeThickness: 2
-        }).setOrigin(0.5).setDepth(1.8).setVisible(false);
+        }).setOrigin(0.5).setDepth(0.55).setVisible(false);
 
         const zoneObj = { x, y, hw, hh, gfx, ring, iconText, txt,
             presenceSeconds: 0, incomePerSecond: 0, totalEarned: 0,
@@ -1826,7 +1849,7 @@ class MainScene extends Phaser.Scene {
         this.money -= this.incomeCost; this.playSound('buy');
         const slotOldVals = this.wallHand.map(item => item ? item.incomeValue : null);
         this.wallsGroup.children.iterate(wall => {
-            if (!wall) return;
+            if (!wall || wall.incomeValue === 0) return;
             const oldVal = wall.incomeValue;
             const pct = 0.08 + Math.random() * 0.03;
             wall.incomeValue = Math.ceil(oldVal + 1 + oldVal * pct);
@@ -1850,82 +1873,65 @@ class MainScene extends Phaser.Scene {
         });
     }
 
+    _fireworkAt(x, y) {
+        const emitter = this.add.particles(x, y, 'star', {
+            lifespan: 560,
+            frequency: 10,
+            quantity: 1,
+            blendMode: 'ADD',
+            gravityY: 180,
+            speedX: { min: 0, max: 0 },
+            speedY: { min: 0, max: 0 },
+            scale: { start: 0.5, end: 1 },
+            rotate: { start: 0, end: 360 },
+            tint: [0xffe033, 0xff8833, 0xffcc00, 0xff44aa, 0xffffff, 0x88ffcc],
+            emitZone: [{
+                quantity: 32, type: 'edge', total: 32, yoyo: false,
+                source: new Phaser.Geom.Circle(0, 0, 24)
+            }]
+        }).setDepth(23);
+        // stop emitting after one full cycle, let particles finish their lifespan then clean up
+        this.time.delayedCall(560, () => {
+            if (emitter && emitter.active) emitter.stop();
+            this.time.delayedCall(600, () => { if (emitter && emitter.active) emitter.destroy(); });
+        });
+    }
+
     _animateIncomeUpgrade(wall, oldVal, newVal) {
         const x = wall.x, y = wall.y;
-        // hide the static value text temporarily
         if (wall.valueText) {
             this.tweens.killTweensOf(wall.valueText);
             wall.valueText.setAlpha(0);
         }
-        // guaranteed restore after 800ms regardless of tween outcome
-        this.time.delayedCall(800, () => {
-            if (wall.valueText && wall.valueText.active) {
+        this.time.delayedCall(750, () => {
+            if (wall.valueText && wall.valueText.active)
                 wall.valueText.setText(`${newVal}$`).setAlpha(1);
-            }
         });
-        // old value flies out to the left
-        const oldTxt = this.add.text(x, y, `${oldVal}$`, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '22px', fill: '#aaaaaa',
-            stroke: '#000000', strokeThickness: 5
-        }).setOrigin(0.5).setDepth(20);
-        this.tweens.add({
-            targets: oldTxt, x: x - 32, alpha: 0, duration: 260, ease: 'Power2',
-            onComplete: () => oldTxt.destroy()
-        });
-        // arrow + new value slides in from right, bigger font, bright yellow
-        const newTxt = this.add.text(x + 36, y, `→${newVal}$`, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '27px', fill: '#ffe033',
-            stroke: '#000000', strokeThickness: 5
-        }).setOrigin(0.5).setDepth(20).setAlpha(0);
-        this.tweens.add({
-            targets: newTxt, x, alpha: 1, duration: 250, ease: 'Power2',
-            onComplete: () => {
-                this.tweens.add({
-                    targets: newTxt, scaleX: 1.3, scaleY: 1.3, duration: 140, yoyo: true, ease: 'Power2',
-                    onComplete: () => {
-                        this.tweens.add({
-                            targets: newTxt, alpha: 0, duration: 280, delay: 180, ease: 'Power2',
-                            onComplete: () => newTxt.destroy()
-                        });
-                    }
-                });
-            }
-        });
+        this._fireworkAt(x, y);
     }
 
     _animateSlotIncomeUpgrade(slot, oldVal, newVal) {
-        const x = slot.cx, y = slot.cy;
         if (slot.valTxt) slot.valTxt.setAlpha(0);
-        const oldTxt = this.add.text(x, y, `${oldVal}$`, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '22px', fill: '#aaaaaa',
-            stroke: '#000000', strokeThickness: 5
-        }).setOrigin(0.5).setDepth(20);
-        this.tweens.add({
-            targets: oldTxt, x: x - 32, alpha: 0, duration: 260, ease: 'Power2',
-            onComplete: () => oldTxt.destroy()
+        this.time.delayedCall(750, () => {
+            if (slot.valTxt && slot.valTxt.active) slot.valTxt.setAlpha(1);
         });
-        const newTxt = this.add.text(x + 36, y, `→${newVal}$`, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '27px', fill: '#ffe033',
-            stroke: '#000000', strokeThickness: 5
-        }).setOrigin(0.5).setDepth(20).setAlpha(0);
-        this.tweens.add({
-            targets: newTxt, x, alpha: 1, duration: 250, ease: 'Power2',
-            onComplete: () => {
-                this.tweens.add({
-                    targets: newTxt, scaleX: 1.3, scaleY: 1.3, duration: 140, yoyo: true, ease: 'Power2',
-                    onComplete: () => {
-                        if (slot.valTxt) slot.valTxt.setAlpha(1);
-                        this.tweens.add({
-                            targets: newTxt, alpha: 0, duration: 280, delay: 180, ease: 'Power2',
-                            onComplete: () => newTxt.destroy()
-                        });
-                    }
-                });
-            }
+        this._fireworkAt(slot.cx, slot.cy);
+    }
+
+    _fadeExit(ms, cb) {
+        const ov = document.createElement('div');
+        ov.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:9999;';
+        document.body.appendChild(ov);
+        ov.getBoundingClientRect(); // force reflow so transition starts from opacity:0
+        ov.style.transition = `opacity ${ms}ms ease-in`;
+        ov.style.opacity = '1';
+        this.time.delayedCall(ms, () => {
+            cb();
+            setTimeout(() => {
+                ov.style.transition = 'opacity 220ms ease-out';
+                ov.style.opacity = '0';
+                setTimeout(() => { if (ov.parentNode) ov.remove(); }, 240);
+            }, 50);
         });
     }
 
@@ -2085,30 +2091,41 @@ class MainScene extends Phaser.Scene {
                     hitOverlap = r - dist; didHit = true; break;
                 }
                 if (!didHit) return;
-                ball.setPosition(ball.x + hitNx * hitOverlap, ball.y + hitNy * hitOverlap);
-                const vel = ball.body.velocity, dot = vel.x * hitNx + vel.y * hitNy;
-                if (dot < 0) {
-                    ball.body.setVelocity(vel.x - 2 * dot * hitNx, vel.y - 2 * dot * hitNy);
-                    const isH = Math.abs(hitNy) > Math.abs(hitNx);
-                    this._squishBall(ball, isH ? 1.45 : 0.55, isH ? 0.55 : 1.45);
+                const isPassThrough = wall.specialType === 'trap' || wall.specialType === 'slow';
+                if (!isPassThrough) {
+                    ball.setPosition(ball.x + hitNx * hitOverlap, ball.y + hitNy * hitOverlap);
+                    const vel = ball.body.velocity, dot = vel.x * hitNx + vel.y * hitNy;
+                    if (dot < 0) {
+                        ball.body.setVelocity(vel.x - 2 * dot * hitNx, vel.y - 2 * dot * hitNy);
+                        const isH = Math.abs(hitNy) > Math.abs(hitNx);
+                        this._squishBall(ball, isH ? 1.45 : 0.55, isH ? 0.55 : 1.45);
+                    }
                 }
                 const now = this.time.now;
                 if (now - (wall.lastHit || 0) >= 16) {
-                    const _mult = ball.multiplier || 1;
-                    const _earned = wall.incomeValue * _mult;
-                    wall.lastHit = now; this.money += _earned; this.totalEarned += _earned;
-                    this._incomeWindow.push({ t: now, v: _earned });
-                    wall.wallTotalEarned = (wall.wallTotalEarned || 0) + _earned;
-                    (wall._wallIncWin = wall._wallIncWin || []).push({ t: now, v: _earned });
-                    ball.currentSpeed = Math.min(ball.currentSpeed * 1.35, ball.bounceSpeed * 2.0);
-                    if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('wallhit'); }
-                    if (wall.valueText && wall.valueText.active) { this.tweens.killTweensOf(wall.valueText); this.tweens.add({ targets: wall.valueText, scaleX: 1.4, scaleY: 1.4, duration: 75, yoyo: true, ease: 'Power2', onComplete: () => { if (wall.valueText && wall.valueText.active) wall.valueText.setScale(1); } }); }
-                    this.updateUI();
+                    wall.lastHit = now;
+                    if (wall.incomeValue > 0) {
+                        const _mult = ball.multiplier || 1;
+                        const _earned = wall.incomeValue * _mult;
+                        this.money += _earned; this.totalEarned += _earned;
+                        this._incomeWindow.push({ t: now, v: _earned });
+                        wall.wallTotalEarned = (wall.wallTotalEarned || 0) + _earned;
+                        (wall._wallIncWin = wall._wallIncWin || []).push({ t: now, v: _earned });
+                        ball.currentSpeed = Math.min(ball.currentSpeed * 1.35, ball.bounceSpeed * 2.0);
+                        if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('wallhit'); }
+                        if (wall.valueText && wall.valueText.active) { this.tweens.killTweensOf(wall.valueText); this.tweens.add({ targets: wall.valueText, scaleX: 1.4, scaleY: 1.4, duration: 75, yoyo: true, ease: 'Power2', onComplete: () => { if (wall.valueText && wall.valueText.active) wall.valueText.setScale(1); } }); }
+                        this.updateUI();
+                    }
                 }
                 if (wall.incomeValue > 0 && now - (wall.lastFloat || 0) >= 180) {
                     wall.lastFloat = now;
                     const _fv = wall.incomeValue * (ball.multiplier || 1);
                     this.showFloatingText(wall.x, wall.y, `${_fv}$`, _fv);
+                }
+                // Trap hiss sound (short cooldown, independent of damage tick)
+                if (wall.specialType === 'trap' && didHit && now - (wall._lastTrapSound || 0) >= 380) {
+                    wall._lastTrapSound = now;
+                    this.playSound('trap');
                 }
                 // Special wall effects (editor walls)
                 if (wall.specialType && didHit && now - (wall._lastSpecial || 0) >= 1500) {
@@ -2120,18 +2137,43 @@ class MainScene extends Phaser.Scene {
                         (wall._trapWindow = wall._trapWindow || []).push({ t: now, v: loss });
                         this.showFloatingText(wall.x, wall.y, `-${loss}$`, -1);
                         this.updateUI();
-                    } else if (wall.specialType === 'slow') {
-                        ball._slowUntil = this.time.now + 1500;
                     }
                 }
             });
 
+            // Zone collision — zones are now solid bouncing obstacles
+            if (this.zones) {
+                this.zones.forEach(zone => {
+                    const zcx = Phaser.Math.Clamp(ball.x, zone.x - zone.hw, zone.x + zone.hw);
+                    const zcy = Phaser.Math.Clamp(ball.y, zone.y - zone.hh, zone.y + zone.hh);
+                    const zdx = ball.x - zcx, zdy = ball.y - zcy, zdistSq = zdx * zdx + zdy * zdy;
+                    if (zdistSq >= r * r) return;
+                    const zdist = zdistSq > 0 ? Math.sqrt(zdistSq) : 0;
+                    const znx = zdist > 0 ? zdx / zdist : 0, zny = zdist > 0 ? zdy / zdist : -1;
+                    ball.setPosition(ball.x + znx * (r - zdist), ball.y + zny * (r - zdist));
+                    const zvel = ball.body.velocity, zdot = zvel.x * znx + zvel.y * zny;
+                    if (zdot < 0) {
+                        ball.body.setVelocity(zvel.x - 2 * zdot * znx, zvel.y - 2 * zdot * zny);
+                        const isH = Math.abs(zny) > Math.abs(znx);
+                        this._squishBall(ball, isH ? 1.45 : 0.55, isH ? 0.55 : 1.45);
+                    }
+                    ball.currentSpeed = Math.min(ball.currentSpeed * 1.35, ball.bounceSpeed * 2.0);
+                    const znow = this.time.now;
+                    if (znow - this._lastHitSound > 80) { this._lastHitSound = znow; this.playSound('wallhit'); }
+                });
+            }
+
             // decay
             if (ball.currentSpeed > ball.bounceSpeed)
                 ball.currentSpeed = Math.max(ball.currentSpeed * 0.985, ball.bounceSpeed);
+            // slow zone: check if ball is inside any slow wall this frame
+            let _newInSlowZone = false;
+            this.wallsGroup.children.iterate(w => { if (!w || w.specialType !== 'slow') return; const _shw = w.width / 2, _shh = w.height / 2; if (ball.x >= w.x - _shw && ball.x <= w.x + _shw && ball.y >= w.y - _shh && ball.y <= w.y + _shh) _newInSlowZone = true; });
+            if (_newInSlowZone !== !!ball._inSlowZone) { if (!_newInSlowZone) ball._slowExitTime = this.time.now; else this.playSound('freeze'); ball._inSlowZone = _newInSlowZone; }
+            const _slowMult = ball._inSlowZone ? 0.25 : (ball._slowExitTime && (this.time.now - ball._slowExitTime) < 500 ? 0.25 + 0.75 * Math.min(1, (this.time.now - ball._slowExitTime) / 500) : 1);
             const vel = ball.body.velocity, spd = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
-            const _isSlowed = ball._slowUntil && this.time.now < ball._slowUntil;
-            if (spd > 0) { const ts = (this._physicsSpeedMult || 1) * (_isSlowed ? 0.3 : 1); ball.body.setVelocity(vel.x / spd * ball.currentSpeed * ts, vel.y / spd * ball.currentSpeed * ts); }
+            const _isSlowed = _slowMult < 1.0;
+            if (spd > 0) { const ts = (this._physicsSpeedMult || 1) * _slowMult; ball.body.setVelocity(vel.x / spd * ball.currentSpeed * ts, vel.y / spd * ball.currentSpeed * ts); }
             if (_isSlowed && !ball._isTinted) {
                 ball._isTinted = true;
                 ball._slowAngle = 0;
@@ -2200,8 +2242,8 @@ class MainScene extends Phaser.Scene {
             if (this.zones && this.zones.length) {
                 this.zones.forEach(zone => {
                     if (!zone._ballsInside) zone._ballsInside = new Set();
-                    const _zIn = ball.x >= zone.x - zone.hw && ball.x <= zone.x + zone.hw
-                        && ball.y >= zone.y - zone.hh && ball.y <= zone.y + zone.hh;
+                    const _zIn = ball.x >= zone.x - zone.hw - r && ball.x <= zone.x + zone.hw + r
+                        && ball.y >= zone.y - zone.hh - r && ball.y <= zone.y + zone.hh + r;
                     if (_zIn && !zone._ballsInside.has(ball)) {
                         zone._incomeAccum = (zone._incomeAccum || 0) + 0.1;
                         const _zt = this.add.text(zone.x, zone.y - 8, '+0.1$/с', {
@@ -2438,26 +2480,7 @@ class MainScene extends Phaser.Scene {
 
         // Fade out + auto-advance to next level or infinite
         this.time.delayedCall(4200, () => {
-            this.cameras.main.fade(900, 0, 0, 0);
-            this.time.delayedCall(900, () => {
-                if (_isLast) {
-                    this.scene.start('MainScene', { mode: 'infinite' });
-                } else {
-                    const _next = lvl + 1;
-                    this.registry.set('level', _next);
-                    let _nw = [];
-                    try {
-                        const _raw = localStorage.getItem(`bumper_level_${_next}`);
-                        if (_raw) {
-                            const _D = 36, _GX = 200, _GY = 118;
-                            JSON.parse(_raw).forEach(w => {
-                                _nw.push({ x: _GX + w.col * _D + _D / 2, y: _GY + w.row * _D + _D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null });
-                            });
-                        }
-                    } catch(e) {}
-                    this.scene.start('MainScene', { customWalls: _nw, testMode: true, levelNum: _next });
-                }
-            });
+            this._fadeExit(900, () => this.scene.start('StartScene'));
         });
     }
 
@@ -2597,17 +2620,40 @@ class EditorScene extends Phaser.Scene {
         this.currentTool = 'boundary';
         this.currentBoundaryColor = 0x888888;
         this.isPainting = false;
+        this.lightTheme = false;
 
-        // Field background
+        // Field background (redrawn on theme toggle)
         const fieldGfx = this.add.graphics();
-        fieldGfx.fillStyle(0x0d0820, 1); fieldGfx.fillRect(FOX, FOY, FS, FS);
-        fieldGfx.lineStyle(3, 0x8855dd, 1); fieldGfx.strokeRect(FOX, FOY, FS, FS);
-
-        // Grid lines
         const gridGfx = this.add.graphics();
-        gridGfx.lineStyle(1, 0x334466, 0.5);
-        for (let c = 0; c <= COLS; c++) gridGfx.lineBetween(GSX + c * D, GSY, GSX + c * D, GSY + ROWS * D);
-        for (let r = 0; r <= ROWS; r++) gridGfx.lineBetween(GSX, GSY + r * D, GSX + COLS * D, GSY + r * D);
+        const drawEditorBg = () => {
+            fieldGfx.clear();
+            gridGfx.clear();
+            if (this.lightTheme) {
+                // light: checkerboard in pale blue tones
+                const _cs = D;
+                for (let r = 0; r < ROWS; r++)
+                    for (let c = 0; c < COLS; c++) {
+                        fieldGfx.fillStyle((r + c) % 2 === 0 ? 0xb8cce0 : 0xdceaf8, 1);
+                        fieldGfx.fillRect(GSX + c * _cs, GSY + r * _cs, _cs, _cs);
+                    }
+                // fill gaps outside grid but inside FOX/FOY
+                fieldGfx.fillStyle(0xdceaf8, 1);
+                fieldGfx.fillRect(FOX, FOY, FS, GSY - FOY);
+                fieldGfx.fillRect(FOX, GSY + ROWS * D, FS, FOY + FS - (GSY + ROWS * D));
+                fieldGfx.fillRect(FOX, FOY, GSX - FOX, FS);
+                fieldGfx.fillRect(GSX + COLS * D, FOY, FOX + FS - (GSX + COLS * D), FS);
+                fieldGfx.lineStyle(3, 0x2255cc, 1); fieldGfx.strokeRect(FOX, FOY, FS, FS);
+                gridGfx.lineStyle(1, 0x7799bb, 0.6);
+            } else {
+                fieldGfx.fillStyle(0x0d0820, 1); fieldGfx.fillRect(FOX, FOY, FS, FS);
+                fieldGfx.lineStyle(3, 0x8855dd, 1); fieldGfx.strokeRect(FOX, FOY, FS, FS);
+                gridGfx.lineStyle(1, 0x334466, 0.5);
+            }
+            for (let c = 0; c <= COLS; c++) gridGfx.lineBetween(GSX + c * D, GSY, GSX + c * D, GSY + ROWS * D);
+            for (let r = 0; r <= ROWS; r++) gridGfx.lineBetween(GSX, GSY + r * D, GSX + COLS * D, GSY + r * D);
+        };
+        drawEditorBg();
+        this._drawEditorBg = drawEditorBg;
 
         // Cell render graphics
         this._cellGfx = this.add.graphics().setDepth(2);
@@ -2623,6 +2669,7 @@ class EditorScene extends Phaser.Scene {
         // Tool palette
         const tools = [
             { key: 'boundary', label: 'СТЕНА', color: 0x888888, desc: 'Препятствие' },
+            { key: 'income', label: 'ДОХОД', color: 0x44ff88, desc: '+деньги хит' },
             { key: 'trap', label: 'ЛОВУШКА', color: 0xff3333, desc: '-деньги' },
             { key: 'slow', label: 'ЛЁД', color: 0x3366ff, desc: 'Замедление' },
             { key: 'zone', label: 'ЗОНА', color: 0x00ddaa, desc: 'Пасс. доход' },
@@ -2714,6 +2761,48 @@ class EditorScene extends Phaser.Scene {
 
         // Legend
         this.add.text(tBtnX + tBtnW / 2, tY, '💀 = -деньги\n❄ = замедление\n◆ = зона дохода', { fontFamily: "'Arial'", fontSize: '11px', fill: '#888888', align: 'center' }).setOrigin(0.5, 0).setDepth(2);
+        tY += 52;
+
+        // Light theme toggle
+        const ltGfx = this.add.graphics().setDepth(2);
+        const drawLtToggle = () => {
+            ltGfx.clear();
+            if (this.lightTheme) {
+                ltGfx.fillStyle(0xdceaf8, 1);
+                ltGfx.fillRoundedRect(tBtnX, tY, tBtnW, 34, 8);
+                ltGfx.lineStyle(2, 0x2255cc, 1);
+                ltGfx.strokeRoundedRect(tBtnX, tY, tBtnW, 34, 8);
+                // checked box
+                ltGfx.fillStyle(0x2255cc, 1);
+                ltGfx.fillRoundedRect(tBtnX + 8, tY + 9, 16, 16, 3);
+                ltGfx.lineStyle(2.5, 0xffffff, 1);
+                ltGfx.lineBetween(tBtnX + 11, tY + 17, tBtnX + 14, tY + 21);
+                ltGfx.lineBetween(tBtnX + 14, tY + 21, tBtnX + 22, tY + 13);
+            } else {
+                ltGfx.fillStyle(0x0e1a27, 1);
+                ltGfx.fillRoundedRect(tBtnX, tY, tBtnW, 34, 8);
+                ltGfx.lineStyle(2, 0x335566, 0.7);
+                ltGfx.strokeRoundedRect(tBtnX, tY, tBtnW, 34, 8);
+                // unchecked box
+                ltGfx.lineStyle(1.5, 0x557799, 1);
+                ltGfx.strokeRoundedRect(tBtnX + 8, tY + 9, 16, 16, 3);
+            }
+        };
+        drawLtToggle();
+        const ltLabel = this.add.text(tBtnX + 31, tY + 17, 'Светлая тема', {
+            fontFamily: "'Arial'", fontSize: '12px',
+            fill: this.lightTheme ? '#224499' : '#88aacc'
+        }).setOrigin(0, 0.5).setDepth(3);
+        this._ltLabel = ltLabel;
+        this._drawLtToggle = drawLtToggle;
+        const ltHit = this.add.rectangle(tBtnX + tBtnW / 2, tY + 17, tBtnW, 34, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        ltHit.on('pointerdown', () => {
+            this.lightTheme = !this.lightTheme;
+            drawLtToggle();
+            ltLabel.setStyle({ fill: this.lightTheme ? '#224499' : '#88aacc' });
+            this._drawEditorBg();
+            this._drawCells();
+        });
 
         // Action buttons (bottom)
         const abY = [700, 760, 820];
@@ -2777,6 +2866,8 @@ class EditorScene extends Phaser.Scene {
             this.cells[row][col] = { type: 'boundary', color: this.currentBoundaryColor };
         } else if (this.currentTool === 'trap') {
             this.cells[row][col] = { type: 'trap', damage: this.currentTrapDamage };
+        } else if (this.currentTool === 'income') {
+            this.cells[row][col] = { type: 'income' };
         } else {
             this.cells[row][col] = { type: this.currentTool };
         }
@@ -2810,6 +2901,12 @@ class EditorScene extends Phaser.Scene {
                     g.fillStyle(0x001040, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     g.lineStyle(2, 0x3366ff, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2, '❄', { fontSize: '13px' }).setOrigin(0.5).setDepth(3));
+                } else if (cell.type === 'income') {
+                    const iv = cell.incomeValue || 1;
+                    g.fillStyle(0x002200, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    g.lineStyle(2, 0x44ff88, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    g.fillStyle(0x44ff88, 0.12); g.fillRect(x + 1, y + 1, this.D - 2, Math.floor((this.D - 2) * 0.35));
+                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2, `+${iv}$`, { fontFamily: "'Impact'", fontSize: '12px', fill: '#44ff88', stroke: '#002200', strokeThickness: 3 }).setOrigin(0.5).setDepth(3));
                 }
             }
         }
@@ -2828,9 +2925,10 @@ class EditorScene extends Phaser.Scene {
                     const _se = { col: c, row: r, type: _sc.type };
                     if (_sc.color) _se.color = _sc.color;
                     if (_sc.damage) _se.damage = _sc.damage;
+                    if (_sc.incomeValue !== undefined) _se.incomeValue = _sc.incomeValue;
                     walls.push(_se);
                 }
-        try { localStorage.setItem(this._levelKey(), JSON.stringify(walls)); } catch (e) { }
+        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls, lightTheme: this.lightTheme })); } catch (e) { }
         const txt = this.add.text(this.GSX + (this.COLS * this.D) / 2, this.GSY + (this.ROWS * this.D) / 2, 'СОХРАНЕНО!', { fontFamily: "'Impact'", fontSize: '38px', fill: '#44ff88', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(10);
         this.tweens.add({ targets: txt, alpha: 0, y: txt.y - 40, duration: 1200, ease: 'Power2', onComplete: () => txt.destroy() });
     }
@@ -2839,15 +2937,21 @@ class EditorScene extends Phaser.Scene {
         try {
             const raw = localStorage.getItem(this._levelKey());
             if (!raw) return;
-            const walls = JSON.parse(raw);
+            const parsed = JSON.parse(raw);
+            const walls = Array.isArray(parsed) ? parsed : (parsed.walls || []);
+            this.lightTheme = !Array.isArray(parsed) && !!(parsed.lightTheme);
+            if (this._drawLtToggle) this._drawLtToggle();
+            if (this._ltLabel) this._ltLabel.setStyle({ fill: this.lightTheme ? '#224499' : '#88aacc' });
             walls.forEach(w => {
                 if (w.row < this.ROWS && w.col < this.COLS) {
                     const _lc = { type: w.type };
                     if (w.color) _lc.color = w.color;
                     if (w.damage) _lc.damage = w.damage;
+                    if (w.incomeValue !== undefined) _lc.incomeValue = w.incomeValue;
                     this.cells[w.row][w.col] = _lc;
                 }
             });
+            if (this._drawEditorBg) this._drawEditorBg();
             this._drawCells();
         } catch (e) { }
     }
@@ -2862,9 +2966,10 @@ class EditorScene extends Phaser.Scene {
                     const _te = { col: c, row: r, type: _tc.type };
                     if (_tc.color) _te.color = _tc.color;
                     if (_tc.damage) _te.damage = _tc.damage;
+                    if (_tc.incomeValue !== undefined) _te.incomeValue = _tc.incomeValue;
                     snap.push(_te);
                 }
-        try { localStorage.setItem(this._levelKey(), JSON.stringify(snap)); } catch (e) { }
+        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls: snap, lightTheme: this.lightTheme })); } catch (e) { }
 
         const customWalls = [];
         const D = this.D;
@@ -2872,9 +2977,9 @@ class EditorScene extends Phaser.Scene {
             for (let c = 0; c < this.COLS; c++)
                 if (this.cells[r][c]) {
                     const _tc = this.cells[r][c];
-                    customWalls.push({ x: this.GSX + c * D + D / 2, y: this.GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null });
+                    customWalls.push({ x: this.GSX + c * D + D / 2, y: this.GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null, incomeValue: _tc.incomeValue || null });
                 }
-        this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum });
+        this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum, lightTheme: this.lightTheme });
     }
 }
 
@@ -2991,17 +3096,20 @@ class LevelSelectScene extends Phaser.Scene {
         playHit.on('pointerout', () => drawPlay(false));
         playHit.on('pointerdown', () => {
             if (!this._selectedLevel) return;
-            let customWalls = [];
+            let customWalls = [], lightTheme = false;
             try {
                 const raw = localStorage.getItem(`bumper_level_${this._selectedLevel}`);
                 if (raw) {
                     const D = 36, GSX = 200, GSY = 118;
-                    JSON.parse(raw).forEach(w => {
-                        customWalls.push({ x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null });
+                    const parsed = JSON.parse(raw);
+                    const walls = Array.isArray(parsed) ? parsed : (parsed.walls || []);
+                    lightTheme = !Array.isArray(parsed) && !!(parsed.lightTheme);
+                    walls.forEach(w => {
+                        customWalls.push({ x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null });
                     });
                 }
             } catch (e) { }
-            this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this._selectedLevel });
+            this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this._selectedLevel, lightTheme });
         });
 
         // РЕДАКТИРОВАТЬ button (right)
