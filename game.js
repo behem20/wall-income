@@ -2096,7 +2096,7 @@ class MainScene extends Phaser.Scene {
     }
 
     update(time, delta) {
-        if (this.fpsText) { const _cv = this.game.canvas; this.fpsText.setText('FPS: ' + Math.round(1000 / delta) + ' | ' + _cv.width + 'x' + _cv.height); }
+        if (this.fpsText && this.game.loop.frame % 20 === 0) this.fpsText.setText('FPS: ' + Math.round(1000 / delta));
         const r = Math.round(this.BALL_R * 0.9);
         const minX = this.fieldOffsetX + r, maxX = this.fieldOffsetX + this.fieldSize - r;
         const minY = this.fieldOffsetY + r, maxY = this.fieldOffsetY + this.fieldSize - r;
@@ -3254,6 +3254,7 @@ class LevelSelectScene extends Phaser.Scene {
     }
 }
 
+const _isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 const config = {
     type: Phaser.WEBGL,
     width: 760, height: 870,
@@ -3269,6 +3270,7 @@ const config = {
         powerPreference: 'high-performance',
         roundPixels: true,
     },
+    fps: _isMobile ? { target: 30, forceSetTimeOut: false, smoothStep: true } : { target: 60 },
     input: {
         activePointers: 3,
     },
