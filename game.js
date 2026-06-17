@@ -423,14 +423,14 @@ class MainScene extends Phaser.Scene {
         ball.body.setCircle(R).setBounce(1, 1).setAllowGravity(false).setDrag(0);
         ball.bounceSpeed = 200; ball.currentSpeed = 200;
         // ── PARTICLE TRAIL — edit config below ──────────────────
-        ball.trail = this.add.particles(0, 0, 'particle', {
-            lifespan: 380,
-            scale: { start: 0.8, end: 0 },
-            alpha: { start: 0.04, end: 0 },
-            tint: 0xffccff,
-            // blendMode: 1,
-            frequency: -1
-        }).setDepth(1);
+        // ball.trail = this.add.particles(0, 0, 'particle', {
+        //     lifespan: 380,
+        //     scale: { start: 0.8, end: 0 },
+        //     alpha: { start: 0.04, end: 0 },
+        //     tint: 0xffccff,
+        //     // blendMode: 1,
+        //     frequency: -1
+        // }).setDepth(1);
         // ─────────────────────────────────────────────────────────
         const angle = Phaser.Math.DegToRad(Phaser.Math.Between(25, 65));
         const sx = Phaser.Math.RND.pick([-1, 1]), sy = Phaser.Math.RND.pick([-1, 1]);
@@ -469,47 +469,48 @@ class MainScene extends Phaser.Scene {
             stroke: '#000000', strokeThickness: 5,
             shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true }
         }).setOrigin(0.5).setDepth(3);
-        // rounded-corner mask — T-shapes get two rects; others get one
-        const maskGfx = this.make.graphics({ add: false });
+        // gradient fill — drawn as T-shape rects directly (no geometry mask = no stencil flush per frame)
         const _D = this.BALL_R * 2;
-        const drawMask = (wx, wy) => {
-            maskGfx.clear();
-            maskGfx.fillStyle(0xffffff);
-            const r = 5;
-            if (wallType === 'tDown') {
-                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2, width, _D, r);
-                maskGfx.fillRoundedRect(wx - _D / 2, wy - height / 2 + _D, _D, _D, r);
-            } else if (wallType === 'tUp') {
-                maskGfx.fillRoundedRect(wx - _D / 2, wy - height / 2, _D, _D, r);
-                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2 + _D, width, _D, r);
-            } else if (wallType === 'tLeft') {
-                maskGfx.fillRoundedRect(wx - width / 2, wy - _D / 2, _D, _D, r);
-                maskGfx.fillRoundedRect(wx - width / 2 + _D, wy - height / 2, _D, height, r);
-            } else if (wallType === 'tRight') {
-                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2, _D, height, r);
-                maskGfx.fillRoundedRect(wx - width / 2 + _D, wy - _D / 2, _D, _D, r);
-            } else {
-                maskGfx.fillRoundedRect(wx - width / 2, wy - height / 2, width, height, r);
-            }
-        };
-        drawMask(x, y);
-        wall.setMask(maskGfx.createGeometryMask());
-        wall._maskGfx = maskGfx;
-        wall._drawMask = drawMask;
-        wall.on('destroy', () => { if (maskGfx.active) maskGfx.destroy(); });
-
-        // gradient fill — color based on income value, clipped by same mask
+        wall._maskGfx = null;
+        wall._drawMask = () => {};
         const fillGfx = this.add.graphics().setDepth(1);
         const drawFill = (ox, oy) => {
             fillGfx.clear();
             const { top, bot } = this._incomeToColors(wall.incomeValue);
             const fillTop = this._darkenColor(top, 0.32);
             const fillBot = this._darkenColor(bot, 0.45);
-            fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
-            fillGfx.fillRect(ox - width / 2, oy - height / 2, width, height);
+            if (wallType === 'tDown') {
+                const fillMid = this._lerpColor(fillTop, fillBot, 0.5);
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillMid, fillMid, 1);
+                fillGfx.fillRect(ox - width / 2, oy - height / 2, width, _D);
+                fillGfx.fillGradientStyle(fillMid, fillMid, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - _D / 2, oy - height / 2 + _D, _D, _D);
+            } else if (wallType === 'tUp') {
+                const fillMid = this._lerpColor(fillTop, fillBot, 0.5);
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillMid, fillMid, 1);
+                fillGfx.fillRect(ox - _D / 2, oy - height / 2, _D, _D);
+                fillGfx.fillGradientStyle(fillMid, fillMid, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - width / 2, oy - height / 2 + _D, width, _D);
+            } else if (wallType === 'tLeft') {
+                const fillMid1 = this._lerpColor(fillTop, fillBot, 1 / 3);
+                const fillMid2 = this._lerpColor(fillTop, fillBot, 2 / 3);
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - width / 2 + _D, oy - height / 2, _D, height);
+                fillGfx.fillGradientStyle(fillMid1, fillMid1, fillMid2, fillMid2, 1);
+                fillGfx.fillRect(ox - width / 2, oy - _D / 2, _D, _D);
+            } else if (wallType === 'tRight') {
+                const fillMid1 = this._lerpColor(fillTop, fillBot, 1 / 3);
+                const fillMid2 = this._lerpColor(fillTop, fillBot, 2 / 3);
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - width / 2, oy - height / 2, _D, height);
+                fillGfx.fillGradientStyle(fillMid1, fillMid1, fillMid2, fillMid2, 1);
+                fillGfx.fillRect(ox - width / 2 + _D, oy - _D / 2, _D, _D);
+            } else {
+                fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
+                fillGfx.fillRect(ox - width / 2, oy - height / 2, width, height);
+            }
         };
         drawFill(x, y);
-        fillGfx.setMask(maskGfx.createGeometryMask());
         wall._fillGfx = fillGfx;
         wall._drawFill = drawFill;
         wall.on('destroy', () => { if (fillGfx.active) fillGfx.destroy(); });
@@ -1762,6 +1763,7 @@ class MainScene extends Phaser.Scene {
                 wall.incomeValue = newVal;
                 if (wall.valueText && wall.valueText.active) wall.valueText.setText(`${newVal}$`);
             }
+            wall._cachedRects = null;
             wall.setPosition(fx, fy);
             wall.setDepth(0);
             if (wall._drawMask) wall._drawMask(fx, fy);
@@ -2069,30 +2071,24 @@ class MainScene extends Phaser.Scene {
     // ──── Physics ────
 
     _getWallCollisionRects(wall) {
+        if (wall._cachedRects) return wall._cachedRects;
         const D = this.BALL_R * 2;
         const wx = wall.x, wy = wall.y;
+        let rects;
         if (wall.wallType === 'tDown') {
-            return [
-                { x: wx, y: wy - D / 2, hw: wall.width / 2, hh: D / 2 },
-                { x: wx, y: wy + D / 2, hw: D / 2, hh: D / 2 }
-            ];
+            rects = [{ x: wx, y: wy - D / 2, hw: wall.width / 2, hh: D / 2 }, { x: wx, y: wy + D / 2, hw: D / 2, hh: D / 2 }];
         } else if (wall.wallType === 'tUp') {
-            return [
-                { x: wx, y: wy - D / 2, hw: D / 2, hh: D / 2 },
-                { x: wx, y: wy + D / 2, hw: wall.width / 2, hh: D / 2 }
-            ];
+            rects = [{ x: wx, y: wy - D / 2, hw: D / 2, hh: D / 2 }, { x: wx, y: wy + D / 2, hw: wall.width / 2, hh: D / 2 }];
         } else if (wall.wallType === 'tLeft') {
-            return [
-                { x: wx - D / 2, y: wy, hw: D / 2, hh: D / 2 },
-                { x: wx + D / 2, y: wy, hw: D / 2, hh: wall.height / 2 }
-            ];
+            rects = [{ x: wx - D / 2, y: wy, hw: D / 2, hh: D / 2 }, { x: wx + D / 2, y: wy, hw: D / 2, hh: wall.height / 2 }];
         } else if (wall.wallType === 'tRight') {
-            return [
-                { x: wx - D / 2, y: wy, hw: D / 2, hh: wall.height / 2 },
-                { x: wx + D / 2, y: wy, hw: D / 2, hh: D / 2 }
-            ];
+            rects = [{ x: wx - D / 2, y: wy, hw: D / 2, hh: wall.height / 2 }, { x: wx + D / 2, y: wy, hw: D / 2, hh: D / 2 }];
+        } else {
+            rects = [{ x: wx, y: wy, hw: wall.width / 2, hh: wall.height / 2 }];
         }
-        return [{ x: wx, y: wy, hw: wall.width / 2, hh: wall.height / 2 }];
+        // Only cache when wall is not being actively dragged
+        if (wall !== this._carryingFieldWall) wall._cachedRects = rects;
+        return rects;
     }
 
     update(time, delta) {
@@ -2110,7 +2106,7 @@ class MainScene extends Phaser.Scene {
             if (ball._multLabel && ball._multLabel.active) ball._multLabel.setPosition(ball.x, ball.y);
 
             // emit trail particles at exact ball position
-            if (ball.trail) ball.trail.explode(2, ball.x, ball.y);
+            if (ball.trail) ball.trail.explode(1, ball.x, ball.y);
             // specular highlight
             this._ballOverlayGfx.fillStyle(0xffffff, 0.55);
             this._ballOverlayGfx.fillCircle(ball.x - r * 0.28, ball.y - r * 0.3, r * 0.27);
@@ -2138,12 +2134,14 @@ class MainScene extends Phaser.Scene {
 
             // wall collision — T-walls use 2 rects, others 1; slow-zone check merged here
             let _newInSlowZone = false;
-            this.wallsGroup.children.iterate(wall => {
-                if (!wall) return;
+            const _wallEntries = this.wallsGroup.children.entries;
+            for (let _wi = 0, _wl = _wallEntries.length; _wi < _wl; _wi++) {
+                const wall = _wallEntries[_wi];
+                if (!wall) continue;
                 if (wall.specialType === 'slow') {
                     const _shw = wall.width / 2, _shh = wall.height / 2;
                     if (ball.x >= wall.x - _shw && ball.x <= wall.x + _shw && ball.y >= wall.y - _shh && ball.y <= wall.y + _shh) _newInSlowZone = true;
-                    return;
+                    continue;
                 }
                 const rects = this._getWallCollisionRects(wall);
                 let hitNx = 0, hitNy = -1, hitOverlap = 0, didHit = false;
@@ -2156,7 +2154,7 @@ class MainScene extends Phaser.Scene {
                     hitNx = dist > 0 ? dx / dist : 0; hitNy = dist > 0 ? dy / dist : -1;
                     hitOverlap = r - dist; didHit = true; break;
                 }
-                if (!didHit) return;
+                if (!didHit) continue;
                 const isPassThrough = wall.specialType === 'trap' || wall.specialType === 'slow';
                 if (!isPassThrough) {
                     ball.setPosition(ball.x + hitNx * hitOverlap, ball.y + hitNy * hitOverlap);
@@ -2205,7 +2203,7 @@ class MainScene extends Phaser.Scene {
                         this._uiDirty = true;
                     }
                 }
-            });
+            } // end wall for-loop
 
             // Zone collision — zones are now solid bouncing obstacles
             if (this.zones) {
