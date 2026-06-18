@@ -636,12 +636,23 @@ class MainScene extends Phaser.Scene {
         // ── Top panel (y 0–130): dark navy ──────────────────────────
         // this.add.rectangle(380, 65, 760, 130, 0x0e1a27);
 
-        // subtle dot grid — baked into RT (one draw call per frame)
+        // subtle dot grid + wallet bg — all baked into RT before destroy
+        const _icoX = 584, _valX = 604;
         const panelGfx = this.make.graphics({ add: false });
         panelGfx.fillStyle(0xffffff, 0.02);
         for (let gx = 30; gx < 760; gx += 48)
             for (let gy = 16; gy < 130; gy += 26)
                 panelGfx.fillCircle(gx, gy, 1.5);
+        // ── Right: wallet background panel ──
+        panelGfx.fillStyle(0x070e16, 1);
+        panelGfx.fillRoundedRect(415, 16, 330, 36, 6);
+        panelGfx.lineStyle(1, 0x1e3d6a, 0.7);
+        panelGfx.strokeRoundedRect(415, 16, 330, 36, 6);
+        // ball icon
+        panelGfx.fillStyle(0xf01cff, 1);
+        panelGfx.fillCircle(_icoX + 6, 124, 6);
+        panelGfx.lineStyle(1.5, 0xf8ae0f, 1);
+        panelGfx.strokeCircle(_icoX + 6, 124, 6);
         this.add.renderTexture(0, 0, 760, 130).setDepth(0).setOrigin(0).draw(panelGfx, 0, 0);
         panelGfx.destroy();
 
@@ -649,7 +660,7 @@ class MainScene extends Phaser.Scene {
         // this.add.rectangle(380, 129, 760, 2, 0x2d55aa).setAlpha(0.7);
 
         // ── Left: progress bar first, "ЦЕЛЬ УРОВНЯ" label below ─────
-        this._pbx = 18; this._pby = 8; this._pbw = 360; this._pbh = 38;
+        this._pbx = 18; this._pby = 16; this._pbw = 360; this._pbh = 38;
         this._progressGfx = this.add.graphics().setDepth(4);
         this.barText = this.add.bitmapText(
             this._pbx + this._pbw / 2,
@@ -666,27 +677,16 @@ class MainScene extends Phaser.Scene {
         // divGfx.lineStyle(1, 0x1e3a5c, 0.8);
         // divGfx.lineBetween(406, 6, 406, 122);
 
-        // ── Right: wallet background panel (same style as progress bar track) ──
-        panelGfx.fillStyle(0x070e16, 1);
-        panelGfx.fillRoundedRect(415, 8, 330, 36, 6);
-        panelGfx.lineStyle(1, 0x1e3d6a, 0.7);
-        panelGfx.strokeRoundedRect(415, 8, 330, 36, 6);
-
         // money number centered in the panel
-        this.moneyText = this.add.bitmapText(580, 26, this._gf, '0$', 36).setOrigin(0.5, 0.5).setDepth(5).setTint(0x18ee50);
-        this.add.bitmapText(580, 50, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(0xffffff);
+        this.moneyText = this.add.bitmapText(580, 34, this._gf, '0$', 36).setOrigin(0.5, 0.5).setDepth(5).setTint(0x18ee50);
+        this.add.bitmapText(580, 58, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(0xffffff);
 
         // mute button (right side, vertically centered in panel)
-        const _icoX = 584, _valX = 604;
-        panelGfx.fillStyle(0xf01cff, 1);
-        panelGfx.fillCircle(_icoX + 6, 116, 6);
-        panelGfx.lineStyle(1.5, 0xf8ae0f, 1);
-        panelGfx.strokeCircle(_icoX + 6, 116, 6);
-        this.ballCountText = this.add.bitmapText(_valX, 108, this._gf, '1 шар', 16).setOrigin(0, 0).setDepth(5).setTint(0xcce4ff);
-        this.add.bitmapText(_icoX, 128, this._gf, '⚡', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
-        this.incomePerSecText = this.add.bitmapText(_valX, 128, this._gf, '0$/сек', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
-        this.add.bitmapText(_icoX, 148, this._gf, '◆', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
-        this.passiveIncomeText = this.add.bitmapText(_valX, 148, this._gf, '0$/с', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
+        this.ballCountText = this.add.bitmapText(_valX, 116, this._gf, '1 шар', 16).setOrigin(0, 0).setDepth(5).setTint(0xcce4ff);
+        this.add.bitmapText(_icoX, 136, this._gf, '⚡', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
+        this.incomePerSecText = this.add.bitmapText(_valX, 136, this._gf, '0$/сек', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
+        this.add.bitmapText(_icoX, 156, this._gf, '◆', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
+        this.passiveIncomeText = this.add.bitmapText(_valX, 156, this._gf, '0$/с', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
         this._fpsDom = document.createElement('div');
         Object.assign(this._fpsDom.style, { position:'fixed', top:'6px', left:'8px', color:'#ff4444', fontSize:'18px', fontFamily:'monospace', fontWeight:'bold', zIndex:'9999', pointerEvents:'none', textShadow:'0 0 3px #000' });
         this._fpsDom.textContent = 'FPS: --';
@@ -751,13 +751,13 @@ class MainScene extends Phaser.Scene {
                 hit.on('pointerdown', onClick);
             };
 
-            makeDevBtn('+МЯCH', 628, 102, () => {
+            makeDevBtn('+МЯCH', 628, 188, () => {
                 this.createBall();
             });
 
             const wallTypes = ['block', 'vertical', 'horizontal', 'tDown', 'tUp', 'tLeft', 'tRight'];
             let _devWallIdx = 0;
-            makeDevBtn('+СТЕНА', 628, 132, () => {
+            makeDevBtn('+СТЕНА', 628, 218, () => {
                 const type = wallTypes[_devWallIdx % wallTypes.length];
                 _devWallIdx++;
                 const { w, h } = this.getWallDims(type);
