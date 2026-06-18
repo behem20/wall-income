@@ -7,6 +7,7 @@ class MainScene extends Phaser.Scene {
         this.testMode = !!(data && data.testMode);
         this.testLevelNum = (data && data.levelNum) || null;
         this.lightTheme = !!(data && data.lightTheme);
+        this._initTargetMoney = (data && data.targetMoney) || null;
         const resumeKey = this.infiniteMode ? 'bumper_save_infinite' : 'bumper_save_normal';
         try {
             const raw = this.testMode ? null : localStorage.getItem(resumeKey);
@@ -77,7 +78,7 @@ class MainScene extends Phaser.Scene {
         this.slotY = 605;
         this.btnY = 790;
 
-        this.targetMoney = 2000; this.money = 0; this.totalEarned = 0; this.incomeBase = 1;
+        this.targetMoney = this._initTargetMoney || 2000; this.money = 0; this.totalEarned = 0; this.incomeBase = 1;
         this.placedWalls = 0; this.ballCost = 20; this.wallPackCost = 20;
         this.incomeCost = 50; this.gameWon = false;
         this.draggingNewWall = false; this.draggingSlotIndex = -1;
@@ -147,18 +148,6 @@ class MainScene extends Phaser.Scene {
         this.physics.world.setBounds(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         this.wallsGroup = this.physics.add.staticGroup();
         this.ballsGroup = this.physics.add.group({ runChildUpdate: true });
-        this.physics.add.collider(this.ballsGroup, this.ballsGroup, (b1, b2) => {
-            [b1, b2].forEach(b => {
-                const vel = b.body.velocity;
-                const spd = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
-                const _bSlowMult = b._inSlowZone ? 0.25 : (b._slowExitTime && (this.time.now - b._slowExitTime) < 500 ? 0.25 + 0.75 * Math.min(1, (this.time.now - b._slowExitTime) / 500) : 1);
-                const ts = (this._physicsSpeedMult || 1) * _bSlowMult;
-                if (spd > 0) b.body.setVelocity(vel.x / spd * b.currentSpeed * ts, vel.y / spd * b.currentSpeed * ts);
-            });
-            const now = this.time.now;
-            if (!b1._lastBallSquish || now - b1._lastBallSquish > 120) { b1._lastBallSquish = now; this._squishBall(b1, 0.65, 1.35); }
-            if (!b2._lastBallSquish || now - b2._lastBallSquish > 120) { b2._lastBallSquish = now; this._squishBall(b2, 1.35, 0.65); }
-        });
         this.zones = [];
         this.time.addEvent({ delay: 1000, loop: true, callback: () => this._updateZones() });
         this._ballOverlayGfx = this.add.graphics().setDepth(3);
@@ -421,6 +410,8 @@ class MainScene extends Phaser.Scene {
         ).setStrokeStyle(1, 0xf8ae0f).setDepth(2);
         this.physics.add.existing(ball);
         ball.body.setCircle(R).setBounce(1, 1).setAllowGravity(false).setDrag(0);
+        ball.body.customSeparateX = true;
+        ball.body.customSeparateY = true;
         ball.bounceSpeed = 200; ball.currentSpeed = 200;
         // ── PARTICLE TRAIL — edit config below ──────────────────
         // ball.trail = this.add.particles(0, 0, 'particle', {
@@ -2809,6 +2800,73 @@ class EditorScene extends Phaser.Scene {
         this.add.text(tBtnX + tBtnW / 2, tY, '💀 = -деньги\n❄ = замедление\n◆ = зона дохода', { fontFamily: "'Arial'", fontSize: '11px', fill: '#888888', align: 'center' }).setOrigin(0.5, 0).setDepth(2);
         tY += 52;
 
+        // Target money input
+        this.editorTargetMoney = 2000;
+        this.add.text(tBtnX + tBtnW / 2, tY, 'ЦЕЛЬ УРОВНЯ ($)', { fontFamily: "'Arial'", fontSize: '10px', fill: '#ffcc44' }).setOrigin(0.5, 0).setDepth(2);
+        tY += 15;
+
+        const targetGfx = this.add.graphics().setDepth(2);
+        const drawTargetBox = (focused) => {
+            targetGfx.clear();
+            targetGfx.fillStyle(focused ? 0x1a1400 : 0x0d0a00, 1);
+            targetGfx.fillRoundedRect(tBtnX, tY, tBtnW, 28, 6);
+            targetGfx.lineStyle(2, focused ? 0xffcc44 : 0x665500, 1);
+            targetGfx.strokeRoundedRect(tBtnX, tY, tBtnW, 28, 6);
+        };
+        drawTargetBox(false);
+        this._targetValText = this.add.text(tBtnX + tBtnW / 2, tY + 14, '2000$', {
+            fontFamily: "'Impact'", fontSize: '15px', fill: '#ffcc44', stroke: '#000', strokeThickness: 2
+        }).setOrigin(0.5).setDepth(3);
+
+        // minus / plus buttons
+        const arrowStyle = { fontFamily: "'Impact'", fontSize: '18px', fill: '#ffcc44', stroke: '#000', strokeThickness: 2 };
+        const steps = [100, 500, 1000, 5000];
+        let _stepIdx = 0;
+        const _updateTargetDisplay = () => {
+            this._targetValText.setText(this.editorTargetMoney.toLocaleString() + '$');
+        };
+
+        const minusHit = this.add.rectangle(tBtnX + 12, tY + 14, 24, 28, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        this.add.text(tBtnX + 12, tY + 14, '−', arrowStyle).setOrigin(0.5).setDepth(4);
+        minusHit.on('pointerdown', () => {
+            this.editorTargetMoney = Math.max(100, this.editorTargetMoney - steps[_stepIdx]);
+            _updateTargetDisplay();
+        });
+
+        const plusHit = this.add.rectangle(tBtnX + tBtnW - 12, tY + 14, 24, 28, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        this.add.text(tBtnX + tBtnW - 12, tY + 14, '+', arrowStyle).setOrigin(0.5).setDepth(4);
+        plusHit.on('pointerdown', () => {
+            this.editorTargetMoney = this.editorTargetMoney + steps[_stepIdx];
+            _updateTargetDisplay();
+        });
+
+        tY += 32;
+        // Step selector (шаг изменения)
+        this.add.text(tBtnX + tBtnW / 2, tY, 'шаг:', { fontFamily: "'Arial'", fontSize: '10px', fill: '#888888' }).setOrigin(0.5, 0).setDepth(2);
+        tY += 13;
+        const stepBtnW = Math.floor((tBtnW - 3 * 4) / 4);
+        this._stepBtns = [];
+        steps.forEach((s, si) => {
+            const bx = tBtnX + si * (stepBtnW + 4);
+            const sg = this.add.graphics().setDepth(2);
+            const drawSB = (sel) => {
+                sg.clear();
+                sg.fillStyle(sel ? 0x2a2000 : 0x0d0900, 1);
+                sg.fillRect(bx, tY, stepBtnW, 20);
+                sg.lineStyle(1.5, sel ? 0xffcc44 : 0x443300, 1);
+                sg.strokeRect(bx, tY, stepBtnW, 20);
+            };
+            drawSB(si === 0);
+            this.add.text(bx + stepBtnW / 2, tY + 10, s >= 1000 ? (s / 1000) + 'k' : s, { fontFamily: "'Impact'", fontSize: '11px', fill: '#ffcc44', stroke: '#000', strokeThickness: 1 }).setOrigin(0.5).setDepth(3);
+            const sh = this.add.rectangle(bx + stepBtnW / 2, tY + 10, stepBtnW, 20, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+            this._stepBtns.push({ sg, drawSB });
+            sh.on('pointerdown', () => {
+                _stepIdx = si;
+                this._stepBtns.forEach((b, bi) => b.drawSB(bi === si));
+            });
+        });
+        tY += 28;
+
         // Light theme toggle
         const ltGfx = this.add.graphics().setDepth(2);
         const drawLtToggle = () => {
@@ -2974,7 +3032,7 @@ class EditorScene extends Phaser.Scene {
                     if (_sc.incomeValue !== undefined) _se.incomeValue = _sc.incomeValue;
                     walls.push(_se);
                 }
-        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls, lightTheme: this.lightTheme })); } catch (e) { }
+        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney })); } catch (e) { }
         const txt = this.add.text(this.GSX + (this.COLS * this.D) / 2, this.GSY + (this.ROWS * this.D) / 2, 'СОХРАНЕНО!', { fontFamily: "'Impact'", fontSize: '38px', fill: '#44ff88', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(10);
         this.tweens.add({ targets: txt, alpha: 0, y: txt.y - 40, duration: 1200, ease: 'Power2', onComplete: () => txt.destroy() });
     }
@@ -2986,6 +3044,10 @@ class EditorScene extends Phaser.Scene {
             const parsed = JSON.parse(raw);
             const walls = Array.isArray(parsed) ? parsed : (parsed.walls || []);
             this.lightTheme = !Array.isArray(parsed) && !!(parsed.lightTheme);
+            if (!Array.isArray(parsed) && parsed.targetMoney) {
+                this.editorTargetMoney = parsed.targetMoney;
+                if (this._targetInput) this._targetInput.value = parsed.targetMoney;
+            }
             if (this._drawLtToggle) this._drawLtToggle();
             if (this._ltLabel) this._ltLabel.setStyle({ fill: this.lightTheme ? '#224499' : '#88aacc' });
             walls.forEach(w => {
@@ -3015,7 +3077,7 @@ class EditorScene extends Phaser.Scene {
                     if (_tc.incomeValue !== undefined) _te.incomeValue = _tc.incomeValue;
                     snap.push(_te);
                 }
-        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls: snap, lightTheme: this.lightTheme })); } catch (e) { }
+        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls: snap, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney })); } catch (e) { }
 
         const customWalls = [];
         const D = this.D;
@@ -3025,7 +3087,7 @@ class EditorScene extends Phaser.Scene {
                     const _tc = this.cells[r][c];
                     customWalls.push({ x: this.GSX + c * D + D / 2, y: this.GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null, incomeValue: _tc.incomeValue || null });
                 }
-        this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum, lightTheme: this.lightTheme });
+        this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney });
     }
 }
 
@@ -3142,7 +3204,7 @@ class LevelSelectScene extends Phaser.Scene {
         playHit.on('pointerout', () => drawPlay(false));
         playHit.on('pointerdown', () => {
             if (!this._selectedLevel) return;
-            let customWalls = [], lightTheme = false;
+            let customWalls = [], lightTheme = false, targetMoney = null;
             try {
                 const raw = localStorage.getItem(`bumper_level_${this._selectedLevel}`);
                 if (raw) {
@@ -3150,12 +3212,13 @@ class LevelSelectScene extends Phaser.Scene {
                     const parsed = JSON.parse(raw);
                     const walls = Array.isArray(parsed) ? parsed : (parsed.walls || []);
                     lightTheme = !Array.isArray(parsed) && !!(parsed.lightTheme);
+                    if (!Array.isArray(parsed) && parsed.targetMoney) targetMoney = parsed.targetMoney;
                     walls.forEach(w => {
                         customWalls.push({ x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null });
                     });
                 }
             } catch (e) { }
-            this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this._selectedLevel, lightTheme });
+            this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this._selectedLevel, lightTheme, targetMoney });
         });
 
         // РЕДАКТИРОВАТЬ button (right)
