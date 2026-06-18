@@ -169,29 +169,26 @@ class MainScene extends Phaser.Scene {
             { type: Phaser.Math.RND.pick(types), incomeValue: Phaser.Math.Between(1, 3) }
         ];
 
-        // field bg — checkerboard pattern
-        const _fieldGfx = this.add.graphics();
-        const _cs = 28; // 392 / 28 = 14 cells
+        // field bg — checkerboard + glow baked into one RenderTexture (single draw call per frame)
+        const _cs = 28;
+        const _bgGfx = this.make.graphics({ add: false });
         if (this.lightTheme) {
             for (let r = 0; r < 14; r++)
                 for (let c = 0; c < 14; c++) {
-                    _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0xb8cce0 : 0xdceaf8, 1);
-                    _fieldGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
+                    _bgGfx.fillStyle((r + c) % 2 === 0 ? 0xb8cce0 : 0xdceaf8, 1);
+                    _bgGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
                 }
-            _fieldGfx.lineStyle(4, 0x2255cc, 1);
-            _fieldGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
+            _bgGfx.lineStyle(4, 0x2255cc, 1);
+            _bgGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         } else {
             for (let r = 0; r < 14; r++)
                 for (let c = 0; c < 14; c++) {
-                    _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0x333333 : 0x000000, 1);
-                    _fieldGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
+                    _bgGfx.fillStyle((r + c) % 2 === 0 ? 0x333333 : 0x000000, 1);
+                    _bgGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
                 }
-            _fieldGfx.lineStyle(4, 0x8855dd, 1);
-            _fieldGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
+            _bgGfx.lineStyle(4, 0x8855dd, 1);
+            _bgGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         }
-
-        // Smooth rounded glow border around the game field
-        const _glowGfx = this.add.graphics().setDepth(0.2);
         const _gx = this.fieldOffsetX, _gy = this.fieldOffsetY, _gs = this.fieldSize;
         const _glowColor = this.lightTheme ? 0x2255cc : 0x9966ff;
         const _glowN = 30;
@@ -200,9 +197,11 @@ class MainScene extends Phaser.Scene {
             const _t = _i / (_glowN - 1);
             const _a = 0.42 * _t * _t * _t;
             const _r = 6 + _spread * 0.35;
-            _glowGfx.lineStyle(2, _glowColor, _a);
-            _glowGfx.strokeRoundedRect(_gx - _spread, _gy - _spread, _gs + _spread * 2, _gs + _spread * 2, _r);
+            _bgGfx.lineStyle(2, _glowColor, _a);
+            _bgGfx.strokeRoundedRect(_gx - _spread, _gy - _spread, _gs + _spread * 2, _gs + _spread * 2, _r);
         }
+        this.add.renderTexture(0, 0, 760, 870).setDepth(0).setOrigin(0).draw(_bgGfx, 0, 0);
+        _bgGfx.destroy();
 
         if (this.lightTheme) {
             this.cameras.main.setBackgroundColor('#f5e8a8');
@@ -637,12 +636,14 @@ class MainScene extends Phaser.Scene {
         // ── Top panel (y 0–130): dark navy ──────────────────────────
         // this.add.rectangle(380, 65, 760, 130, 0x0e1a27);
 
-        // subtle dot grid
-        const panelGfx = this.add.graphics();
+        // subtle dot grid — baked into RT (one draw call per frame)
+        const panelGfx = this.make.graphics({ add: false });
         panelGfx.fillStyle(0xffffff, 0.02);
         for (let gx = 30; gx < 760; gx += 48)
             for (let gy = 16; gy < 130; gy += 26)
                 panelGfx.fillCircle(gx, gy, 1.5);
+        this.add.renderTexture(0, 0, 760, 130).setDepth(0).setOrigin(0).draw(panelGfx, 0, 0);
+        panelGfx.destroy();
 
         // bottom separator line
         // this.add.rectangle(380, 129, 760, 2, 0x2d55aa).setAlpha(0.7);
@@ -776,11 +777,13 @@ class MainScene extends Phaser.Scene {
         this.buildSlotUIs();
 
         // ── Upgrades strip (no label, no wrapper) ─────────────────
-        const sharedBtnBg = this.add.graphics();
+        const sharedBtnBg = this.make.graphics({ add: false });
         this.buttonBall = this.createButton(167, this.btnY, '🟠', '+ 1 шарик', this.ballCost, () => this.buyBall(), sharedBtnBg);
         this.buttonWallPack = this.createButton(380, this.btnY, '🧱', '+ 3 стены', this.wallPackCost, () => this.buyWallPack(), sharedBtnBg);
         this.buttonIncome = this.createButton(593, this.btnY, '⚡', '+ доход стен', this.incomeCost, () => this.buyIncomeUpgrade(), sharedBtnBg);
         this._upgradeBtnCenters = [{ cx: 167, cy: this.btnY }, { cx: 380, cy: this.btnY }, { cx: 593, cy: this.btnY }];
+        this.add.renderTexture(0, 0, 760, 870).setDepth(-1).setOrigin(0).draw(sharedBtnBg, 0, 0);
+        sharedBtnBg.destroy();
         this._scheduleUpgradeShimmer();
         this._scheduleRandomBlock();
 
