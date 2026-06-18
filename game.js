@@ -1,3 +1,67 @@
+// ── Bitmap font — atlas + Angelcode XML built, game starts after PNG blob ready ──
+const _GF_KEY = '_gf';
+let _gfPngURL = null;
+let _gfXmlURL = null;
+
+(function _buildGameFont() {
+    const BASE = 88, PAD = 3, MAX_W = 2048;
+    const CHARS = ' !"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~—0123456789' +
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz' +
+        '→←◆✓▶★✖×♪⚡❄✨✏∞' +
+        'АБВГДЕЁЖЗИЙКЛМНОП' + 'РСТУФХЦЧШЩЪЫЬЭЮЯ' +
+        'абвгдеёжзийклмноп' + 'рстуфхцчшщъыьэюя';
+    const uniq = [...new Set(CHARS)];
+    const FSTR = `bold ${BASE}px "Segoe UI","Segoe UI Emoji",Arial,sans-serif`;
+    const mc = document.createElement('canvas'); mc.width = 2; mc.height = 2;
+    const mctx = mc.getContext('2d'); mctx.font = FSTR;
+    const H = BASE + PAD * 4 + 4;
+    const glyphs = {}; let rx = PAD, ry = 0;
+    for (const ch of uniq) {
+        const w = Math.ceil(mctx.measureText(ch).width) + PAD * 2;
+        if (rx + w + PAD > MAX_W) { ry += H + PAD; rx = PAD; }
+        glyphs[ch] = { x: rx, y: ry, w };
+        rx += w + PAD;
+    }
+    const totalH = ry + H;
+    const cv = document.createElement('canvas'); cv.width = MAX_W; cv.height = totalH;
+    const ctx = cv.getContext('2d'); ctx.font = FSTR; ctx.textBaseline = 'middle';
+    ctx.strokeStyle = 'rgba(0,0,0,0.72)'; ctx.lineWidth = BASE * 0.09; ctx.lineJoin = 'round';
+    for (const [ch, g] of Object.entries(glyphs)) ctx.strokeText(ch, g.x + PAD, g.y + H / 2);
+    ctx.fillStyle = '#fff';
+    for (const [ch, g] of Object.entries(glyphs)) ctx.fillText(ch, g.x + PAD, g.y + H / 2);
+
+    // Build Angelcode BMFont XML — Phaser's native bitmap font format
+    let xmlChars = '';
+    for (const [ch, g] of Object.entries(glyphs)) {
+        const id = ch.codePointAt(0);
+        xmlChars += `<char id="${id}" x="${g.x}" y="${g.y}" width="${g.w}" height="${H}" xoffset="0" yoffset="0" xadvance="${g.w - PAD}" page="0" chnl="0"/>`;
+    }
+    const xml = `<?xml version="1.0"?><font><info face="${_GF_KEY}" size="${BASE}" bold="1" italic="0" charset="" unicode="1" stretchH="100" smooth="1" aa="1" padding="0,0,0,0" spacing="1,1"/><common lineHeight="${H}" base="${BASE}" scaleW="${MAX_W}" scaleH="${totalH}" pages="1" packed="0"/><pages><page id="0" file="font.png"/></pages><chars count="${uniq.length}">${xmlChars}</chars></font>`;
+    _gfXmlURL = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }));
+
+    cv.toBlob(function(blob) {
+        _gfPngURL = URL.createObjectURL(blob);
+        _startPhaserGame();
+    }, 'image/png');
+})();
+
+// Called from each scene's preload() — loads font via Phaser's native bitmapFont pipeline
+function _preloadGameFont(scene) {
+    if (!scene.cache.bitmapFont.has(_GF_KEY)) {
+        scene.load.bitmapFont(_GF_KEY, _gfPngURL, _gfXmlURL);
+    }
+}
+
+// Called from each scene's create() — sets linear filtering on first call, returns key
+function _initGameFont(scene) {
+    const tex = scene.textures.get(_GF_KEY);
+    if (tex && !tex._gfLinear) {
+        tex.setFilter(Phaser.Textures.FilterMode.LINEAR);
+        tex._gfLinear = true;
+    }
+    return _GF_KEY;
+}
+
 class MainScene extends Phaser.Scene {
     constructor() { super('MainScene'); }
 
@@ -7,12 +71,15 @@ class MainScene extends Phaser.Scene {
         this.testMode = !!(data && data.testMode);
         this.testLevelNum = (data && data.levelNum) || null;
         this.lightTheme = !!(data && data.lightTheme);
+        this._initTargetMoney = (data && data.targetMoney) || null;
         const resumeKey = this.infiniteMode ? 'bumper_save_infinite' : 'bumper_save_normal';
         try {
             const raw = this.testMode ? null : localStorage.getItem(resumeKey);
             this.resumeData = raw ? JSON.parse(raw) : null;
         } catch (e) { this.resumeData = null; }
     }
+
+    preload() { _preloadGameFont(this); }
 
     saveProgress() {
         if (this.testMode) return;
@@ -49,7 +116,7 @@ class MainScene extends Phaser.Scene {
         // Destroy initial hand walls placed by create(), then restore saved ones
         this.wallsGroup.getChildren().slice().forEach(w => {
             if (w && w.active) {
-                if (w._fillGfx && w._fillGfx.active) w._fillGfx.destroy();
+                if (w._fillGfx && w._fillGfx !== w && w._fillGfx.active) w._fillGfx.destroy();
                 if (w._outlineGfx && w._outlineGfx.active) w._outlineGfx.destroy();
                 if (w.valueText && w.valueText.active) w.valueText.destroy();
                 w.destroy();
@@ -67,6 +134,7 @@ class MainScene extends Phaser.Scene {
         this.updateSlotsUI(); this.updateUI();
     }
 
+
     create() {
         this.BALL_R = 18;
         this.fieldSize = 392;
@@ -77,7 +145,7 @@ class MainScene extends Phaser.Scene {
         this.slotY = 605;
         this.btnY = 790;
 
-        this.targetMoney = 2000; this.money = 0; this.totalEarned = 0; this.incomeBase = 1;
+        this.targetMoney = this._initTargetMoney || 2000; this.money = 0; this.totalEarned = 0; this.incomeBase = 1;
         this.placedWalls = 0; this.ballCost = 20; this.wallPackCost = 20;
         this.incomeCost = 50; this.gameWon = false;
         this.draggingNewWall = false; this.draggingSlotIndex = -1;
@@ -87,11 +155,12 @@ class MainScene extends Phaser.Scene {
         try {
             const _ctx = new (window.AudioContext || window.webkitAudioContext)();
             this._audioCtx = _ctx;
-            fetch('freeze.wav').then(r => r.arrayBuffer()).then(ab => _ctx.decodeAudioData(ab)).then(buf => { this._freezeBuffer = buf; }).catch(() => {});
-        } catch (e) {}
+            fetch('freeze.wav').then(r => r.arrayBuffer()).then(ab => _ctx.decodeAudioData(ab)).then(buf => { this._freezeBuffer = buf; }).catch(() => { });
+        } catch (e) { }
         this._musicStarted = false; this._musicGain = null; this._musicTimeout = null;
         this._physicsSpeedMult = 1;
         this._incomeWindow = [];
+        this._fpsHist = {};
 
         const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight'];
         this.wallHand = [
@@ -100,29 +169,26 @@ class MainScene extends Phaser.Scene {
             { type: Phaser.Math.RND.pick(types), incomeValue: Phaser.Math.Between(1, 3) }
         ];
 
-        // field bg — checkerboard pattern
-        const _fieldGfx = this.add.graphics();
-        const _cs = 28; // 392 / 28 = 14 cells
+        // field bg — checkerboard + glow baked into one RenderTexture (single draw call per frame)
+        const _cs = 28;
+        const _bgGfx = this.make.graphics({ add: false });
         if (this.lightTheme) {
             for (let r = 0; r < 14; r++)
                 for (let c = 0; c < 14; c++) {
-                    _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0xb8cce0 : 0xdceaf8, 1);
-                    _fieldGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
+                    _bgGfx.fillStyle((r + c) % 2 === 0 ? 0xb8cce0 : 0xdceaf8, 1);
+                    _bgGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
                 }
-            _fieldGfx.lineStyle(4, 0x2255cc, 1);
-            _fieldGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
+            _bgGfx.lineStyle(4, 0x2255cc, 1);
+            _bgGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         } else {
             for (let r = 0; r < 14; r++)
                 for (let c = 0; c < 14; c++) {
-                    _fieldGfx.fillStyle((r + c) % 2 === 0 ? 0x333333 : 0x000000, 1);
-                    _fieldGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
+                    _bgGfx.fillStyle((r + c) % 2 === 0 ? 0x333333 : 0x000000, 1);
+                    _bgGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
                 }
-            _fieldGfx.lineStyle(4, 0x8855dd, 1);
-            _fieldGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
+            _bgGfx.lineStyle(4, 0x8855dd, 1);
+            _bgGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         }
-
-        // Smooth rounded glow border around the game field
-        const _glowGfx = this.add.graphics().setDepth(0.2);
         const _gx = this.fieldOffsetX, _gy = this.fieldOffsetY, _gs = this.fieldSize;
         const _glowColor = this.lightTheme ? 0x2255cc : 0x9966ff;
         const _glowN = 30;
@@ -131,9 +197,11 @@ class MainScene extends Phaser.Scene {
             const _t = _i / (_glowN - 1);
             const _a = 0.42 * _t * _t * _t;
             const _r = 6 + _spread * 0.35;
-            _glowGfx.lineStyle(2, _glowColor, _a);
-            _glowGfx.strokeRoundedRect(_gx - _spread, _gy - _spread, _gs + _spread * 2, _gs + _spread * 2, _r);
+            _bgGfx.lineStyle(2, _glowColor, _a);
+            _bgGfx.strokeRoundedRect(_gx - _spread, _gy - _spread, _gs + _spread * 2, _gs + _spread * 2, _r);
         }
+        this.add.renderTexture(0, 0, 760, 870).setDepth(0).setOrigin(0).draw(_bgGfx, 0, 0);
+        _bgGfx.destroy();
 
         if (this.lightTheme) {
             this.cameras.main.setBackgroundColor('#f5e8a8');
@@ -147,18 +215,6 @@ class MainScene extends Phaser.Scene {
         this.physics.world.setBounds(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         this.wallsGroup = this.physics.add.staticGroup();
         this.ballsGroup = this.physics.add.group({ runChildUpdate: true });
-        this.physics.add.collider(this.ballsGroup, this.ballsGroup, (b1, b2) => {
-            [b1, b2].forEach(b => {
-                const vel = b.body.velocity;
-                const spd = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
-                const _bSlowMult = b._inSlowZone ? 0.25 : (b._slowExitTime && (this.time.now - b._slowExitTime) < 500 ? 0.25 + 0.75 * Math.min(1, (this.time.now - b._slowExitTime) / 500) : 1);
-                const ts = (this._physicsSpeedMult || 1) * _bSlowMult;
-                if (spd > 0) b.body.setVelocity(vel.x / spd * b.currentSpeed * ts, vel.y / spd * b.currentSpeed * ts);
-            });
-            const now = this.time.now;
-            if (!b1._lastBallSquish || now - b1._lastBallSquish > 120) { b1._lastBallSquish = now; this._squishBall(b1, 0.65, 1.35); }
-            if (!b2._lastBallSquish || now - b2._lastBallSquish > 120) { b2._lastBallSquish = now; this._squishBall(b2, 1.35, 0.65); }
-        });
         this.zones = [];
         this.time.addEvent({ delay: 1000, loop: true, callback: () => this._updateZones() });
         this._ballOverlayGfx = null;
@@ -166,6 +222,8 @@ class MainScene extends Phaser.Scene {
         this._genWallDustTexture();
         this._genStarTexture();
         this._genLuzTexture();
+        this._initWallShapesAtlas();
+        this._gf = _initGameFont(this);
 
         this.createBall();
         this.createUI();
@@ -421,6 +479,8 @@ class MainScene extends Phaser.Scene {
         ).setStrokeStyle(1, 0xf8ae0f).setDepth(2);
         this.physics.add.existing(ball);
         ball.body.setCircle(R).setBounce(1, 1).setAllowGravity(false).setDrag(0);
+        ball.body.customSeparateX = true;
+        ball.body.customSeparateY = true;
         ball.bounceSpeed = 200; ball.currentSpeed = 200;
         // ── PARTICLE TRAIL — edit config below ──────────────────
         // ball.trail = this.add.particles(0, 0, 'particle', {
@@ -455,8 +515,8 @@ class MainScene extends Phaser.Scene {
 
     createWall(x, y, width, height, wallType, incomeValue) {
         const val = incomeValue !== undefined ? incomeValue : this.incomeBase;
-        const wall = this.add.tileSprite(x, y, width, height, 'checker');
-        wall.setOrigin(0.5, 0.5).setAlpha(0.001);
+        // Image from shared atlas — all walls batch in 1 WebGL draw call
+        const wall = this.add.image(x, y, 'wallShapes', wallType).setOrigin(0.5, 0.5).setDepth(1);
         this.physics.add.existing(wall, true);
         wall.body.setSize(width, height);
         wall.isWall = true; wall.wallType = wallType;
@@ -467,104 +527,18 @@ class MainScene extends Phaser.Scene {
         wall.on('pointerover', () => this._showWallTooltip(wall));
         wall.on('pointerout', () => this._hideWallTooltip());
         wall.on('destroy', () => this._hideWallTooltip());
-        wall.valueText = this.add.text(x, y, `${val}$`, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '22px', fill: '#ffffff',
-            stroke: '#000000', strokeThickness: 5,
-            shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true }
-        }).setOrigin(0.5).setDepth(3);
-        // gradient fill — drawn as T-shape rects directly (no geometry mask = no stencil flush per frame)
-        const _D = this.BALL_R * 2;
+        wall.valueText = this.add.bitmapText(x, y, this._gf, `${val}$`, 22).setOrigin(0.5).setDepth(3).setTint(0xffffff);
+        this._setWallTint(wall, val);
+        // compat refs — wall IS its own visual now
+        wall._fillGfx = wall;
+        wall._outlineGfx = null;
         wall._maskGfx = null;
-        wall._drawMask = () => {};
-        const fillGfx = this.add.graphics().setDepth(1);
-        const drawFill = (ox, oy) => {
-            fillGfx.clear();
-            const { top, bot } = this._incomeToColors(wall.incomeValue);
-            const fillTop = this._darkenColor(top, 0.32);
-            const fillBot = this._darkenColor(bot, 0.45);
-            if (wallType === 'tDown') {
-                const fillMid = this._lerpColor(fillTop, fillBot, 0.5);
-                fillGfx.fillGradientStyle(fillTop, fillTop, fillMid, fillMid, 1);
-                fillGfx.fillRect(ox - width / 2, oy - height / 2, width, _D);
-                fillGfx.fillGradientStyle(fillMid, fillMid, fillBot, fillBot, 1);
-                fillGfx.fillRect(ox - _D / 2, oy - height / 2 + _D, _D, _D);
-            } else if (wallType === 'tUp') {
-                const fillMid = this._lerpColor(fillTop, fillBot, 0.5);
-                fillGfx.fillGradientStyle(fillTop, fillTop, fillMid, fillMid, 1);
-                fillGfx.fillRect(ox - _D / 2, oy - height / 2, _D, _D);
-                fillGfx.fillGradientStyle(fillMid, fillMid, fillBot, fillBot, 1);
-                fillGfx.fillRect(ox - width / 2, oy - height / 2 + _D, width, _D);
-            } else if (wallType === 'tLeft') {
-                const fillMid1 = this._lerpColor(fillTop, fillBot, 1 / 3);
-                const fillMid2 = this._lerpColor(fillTop, fillBot, 2 / 3);
-                fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
-                fillGfx.fillRect(ox - width / 2 + _D, oy - height / 2, _D, height);
-                fillGfx.fillGradientStyle(fillMid1, fillMid1, fillMid2, fillMid2, 1);
-                fillGfx.fillRect(ox - width / 2, oy - _D / 2, _D, _D);
-            } else if (wallType === 'tRight') {
-                const fillMid1 = this._lerpColor(fillTop, fillBot, 1 / 3);
-                const fillMid2 = this._lerpColor(fillTop, fillBot, 2 / 3);
-                fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
-                fillGfx.fillRect(ox - width / 2, oy - height / 2, _D, height);
-                fillGfx.fillGradientStyle(fillMid1, fillMid1, fillMid2, fillMid2, 1);
-                fillGfx.fillRect(ox - width / 2 + _D, oy - _D / 2, _D, _D);
-            } else {
-                fillGfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
-                fillGfx.fillRect(ox - width / 2, oy - height / 2, width, height);
-            }
+        wall._drawMask = () => { };
+        wall._drawFill = (ox, oy) => { if (wall.active) wall.setPosition(ox, oy); };
+        wall._drawOutline = (ox, oy, color, alpha) => {
+            const defColor = this._incomeToColors(wall.incomeValue).top;
+            this._redrawWallOutlineGfx(wall._outlineGfx, wall, ox, oy, color, alpha, defColor);
         };
-        drawFill(x, y);
-        wall._fillGfx = fillGfx;
-        wall._drawFill = drawFill;
-        wall.on('destroy', () => { if (fillGfx.active) fillGfx.destroy(); });
-
-        // white outline overlay — redrawn when wall moves
-        const olGfx = this.add.graphics().setDepth(2.5);
-        const _D2 = this.BALL_R * 2;
-        const drawOutline = (ox, oy, color, alpha) => {
-            const _c = (color !== undefined) ? color : this._incomeToColors(wall.incomeValue).top;
-            const _a = (alpha !== undefined) ? alpha : 0.9;
-            olGfx.clear();
-            olGfx.lineStyle(2, _c, _a);
-            const hw = width / 2, hh = height / 2, D2 = _D2;
-            if (wallType === 'tDown') {
-                olGfx.beginPath();
-                olGfx.moveTo(ox - hw, oy - hh); olGfx.lineTo(ox + hw, oy - hh);
-                olGfx.lineTo(ox + hw, oy - hh + D2); olGfx.lineTo(ox + D2 / 2, oy - hh + D2);
-                olGfx.lineTo(ox + D2 / 2, oy + hh); olGfx.lineTo(ox - D2 / 2, oy + hh);
-                olGfx.lineTo(ox - D2 / 2, oy - hh + D2); olGfx.lineTo(ox - hw, oy - hh + D2);
-                olGfx.closePath(); olGfx.strokePath();
-            } else if (wallType === 'tUp') {
-                olGfx.beginPath();
-                olGfx.moveTo(ox - D2 / 2, oy - hh); olGfx.lineTo(ox + D2 / 2, oy - hh);
-                olGfx.lineTo(ox + D2 / 2, oy - hh + D2); olGfx.lineTo(ox + hw, oy - hh + D2);
-                olGfx.lineTo(ox + hw, oy + hh); olGfx.lineTo(ox - hw, oy + hh);
-                olGfx.lineTo(ox - hw, oy - hh + D2); olGfx.lineTo(ox - D2 / 2, oy - hh + D2);
-                olGfx.closePath(); olGfx.strokePath();
-            } else if (wallType === 'tLeft') {
-                olGfx.beginPath();
-                olGfx.moveTo(ox - hw + D2, oy - hh); olGfx.lineTo(ox + hw, oy - hh);
-                olGfx.lineTo(ox + hw, oy + hh); olGfx.lineTo(ox - hw + D2, oy + hh);
-                olGfx.lineTo(ox - hw + D2, oy + D2 / 2); olGfx.lineTo(ox - hw, oy + D2 / 2);
-                olGfx.lineTo(ox - hw, oy - D2 / 2); olGfx.lineTo(ox - hw + D2, oy - D2 / 2);
-                olGfx.closePath(); olGfx.strokePath();
-            } else if (wallType === 'tRight') {
-                olGfx.beginPath();
-                olGfx.moveTo(ox - hw, oy - hh); olGfx.lineTo(ox - hw + D2, oy - hh);
-                olGfx.lineTo(ox - hw + D2, oy - D2 / 2); olGfx.lineTo(ox + hw, oy - D2 / 2);
-                olGfx.lineTo(ox + hw, oy + D2 / 2); olGfx.lineTo(ox - hw + D2, oy + D2 / 2);
-                olGfx.lineTo(ox - hw + D2, oy + hh); olGfx.lineTo(ox - hw, oy + hh);
-                olGfx.closePath(); olGfx.strokePath();
-            } else {
-                olGfx.strokeRoundedRect(ox - hw, oy - hh, width, height, 5);
-            }
-        };
-        drawOutline(x, y);
-        wall._outlineGfx = olGfx;
-        wall._drawOutline = drawOutline;
-        wall.on('destroy', () => { if (olGfx && olGfx.active) olGfx.destroy(); });
-
         this.wallsGroup.add(wall);
         return wall;
     }
@@ -582,13 +556,8 @@ class MainScene extends Phaser.Scene {
 
     showFloatingText(x, y, text, value) {
         const v = value || 0;
-        const color = v < 0 ? '#ff2200' : v >= 300 ? '#ff3311' : v >= 120 ? '#ff7722' : v >= 50 ? '#ffcc22' : v >= 20 ? '#aaff22' : '#04ff26';
-        const t = this.add.text(x, y, text, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '22px', fill: color,
-            stroke: '#000000', strokeThickness: 5,
-            shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true }
-        }).setOrigin(0.5).setDepth(20);
+        const tint = v < 0 ? 0xff2200 : v >= 300 ? 0xff3311 : v >= 120 ? 0xff7722 : v >= 50 ? 0xffcc22 : v >= 20 ? 0xaaff22 : 0x04ff26;
+        const t = this.add.bitmapText(x, y, this._gf, text, 22).setOrigin(0.5).setDepth(20).setTint(tint);
         this.tweens.add({
             targets: t, y: y - 40, scaleX: { from: 0, to: 1 }, duration: 380, ease: 'Power1',
             onComplete: () => {
@@ -667,12 +636,14 @@ class MainScene extends Phaser.Scene {
         // ── Top panel (y 0–130): dark navy ──────────────────────────
         // this.add.rectangle(380, 65, 760, 130, 0x0e1a27);
 
-        // subtle dot grid
-        const dotGfx = this.add.graphics();
-        dotGfx.fillStyle(0xffffff, 0.02);
+        // subtle dot grid — baked into RT (one draw call per frame)
+        const panelGfx = this.make.graphics({ add: false });
+        panelGfx.fillStyle(0xffffff, 0.02);
         for (let gx = 30; gx < 760; gx += 48)
             for (let gy = 16; gy < 130; gy += 26)
-                dotGfx.fillCircle(gx, gy, 1.5);
+                panelGfx.fillCircle(gx, gy, 1.5);
+        this.add.renderTexture(0, 0, 760, 130).setDepth(0).setOrigin(0).draw(panelGfx, 0, 0);
+        panelGfx.destroy();
 
         // bottom separator line
         // this.add.rectangle(380, 129, 760, 2, 0x2d55aa).setAlpha(0.7);
@@ -680,22 +651,15 @@ class MainScene extends Phaser.Scene {
         // ── Left: progress bar first, "ЦЕЛЬ УРОВНЯ" label below ─────
         this._pbx = 18; this._pby = 8; this._pbw = 360; this._pbh = 38;
         this._progressGfx = this.add.graphics().setDepth(4);
-        this.barText = this.add.text(
+        this.barText = this.add.bitmapText(
             this._pbx + this._pbw / 2,
             this._pby + this._pbh / 2,
-            '0 / 2,000,000',
-            {
-                fontFamily: "'Impact', 'Arial Black', sans-serif",
-                fontSize: '36px', fill: '#18ee50',
-                stroke: '#010e05', strokeThickness: 4
-            }
-        ).setOrigin(0.5, 0.5).setDepth(5);
+            this._gf, '0 / 2,000,000', 36
+        ).setOrigin(0.5, 0.5).setDepth(5).setTint(0x18ee50);
         const _lvl = this.registry.get('level') || 1;
         const _barLabel = this.infiniteMode ? '∞  БЕСКОНЕЧНЫЙ РЕЖИМ' : `ЦЕЛЬ УРОВНЯ ${_lvl}`;
-        this.add.text(this._pbx + this._pbw / 2, this._pby + this._pbh + 5, _barLabel, {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '22px', fill: this.infiniteMode ? '#44aaff' : '#ffffff', stroke: '#010e05', strokeThickness: 3
-        }).setOrigin(0.5, 0);
+        this.add.bitmapText(this._pbx + this._pbw / 2, this._pby + this._pbh + 5, this._gf, _barLabel, 22
+        ).setOrigin(0.5, 0).setTint(this.infiniteMode ? 0x44aaff : 0xffffff);
 
         // ── Vertical divider ──────────────────────────────────────
         // const divGfx = this.add.graphics();
@@ -703,54 +667,31 @@ class MainScene extends Phaser.Scene {
         // divGfx.lineBetween(406, 6, 406, 122);
 
         // ── Right: wallet background panel (same style as progress bar track) ──
-        const walletBgGfx = this.add.graphics().setDepth(4);
-        walletBgGfx.fillStyle(0x070e16, 1);
-        walletBgGfx.fillRoundedRect(415, 8, 330, 36, 6);
-        walletBgGfx.lineStyle(1, 0x1e3d6a, 0.7);
-        walletBgGfx.strokeRoundedRect(415, 8, 330, 36, 6);
+        panelGfx.fillStyle(0x070e16, 1);
+        panelGfx.fillRoundedRect(415, 8, 330, 36, 6);
+        panelGfx.lineStyle(1, 0x1e3d6a, 0.7);
+        panelGfx.strokeRoundedRect(415, 8, 330, 36, 6);
 
         // money number centered in the panel
-        this.moneyText = this.add.text(580, 26, '0$', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '36px', fill: '#18ee50',
-            stroke: '#010e05', strokeThickness: 4
-        }).setOrigin(0.5, 0.5).setDepth(5);
-        this.add.text(580, 50, 'КОШЕЛЁК', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '22px', fill: '#ffffff', stroke: '#010e05', strokeThickness: 3
-        }).setOrigin(0.5, 0);
+        this.moneyText = this.add.bitmapText(580, 26, this._gf, '0$', 36).setOrigin(0.5, 0.5).setDepth(5).setTint(0x18ee50);
+        this.add.bitmapText(580, 50, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(0xffffff);
 
         // mute button (right side, vertically centered in panel)
         const _icoX = 584, _valX = 604;
-        this._ballDotGfx = this.add.graphics().setDepth(5);
-        this._ballDotGfx.fillStyle(0xf01cff, 1);
-        this._ballDotGfx.fillCircle(_icoX + 6, 116, 6);
-        this._ballDotGfx.lineStyle(1.5, 0xf8ae0f, 1);
-        this._ballDotGfx.strokeCircle(_icoX + 6, 116, 6);
-        this.ballCountText = this.add.text(_valX, 108, '1 шар', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '16px', fill: '#cce4ff', stroke: '#010e05', strokeThickness: 3
-        }).setOrigin(0, 0).setDepth(5);
-        this.add.text(_icoX, 128, '⚡', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '16px', fill: '#ffe666', stroke: '#010e05', strokeThickness: 3
-        }).setOrigin(0, 0).setDepth(5);
-        this.incomePerSecText = this.add.text(_valX, 128, '0$/сек', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '16px', fill: '#ffe666', stroke: '#010e05', strokeThickness: 3
-        }).setOrigin(0, 0).setDepth(5);
-        this.add.text(_icoX, 148, '◆', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '16px', fill: '#ffdd44', stroke: '#100e00', strokeThickness: 3
-        }).setOrigin(0, 0).setDepth(5);
-        this.passiveIncomeText = this.add.text(_valX, 148, '0$/с', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '16px', fill: '#ffdd44', stroke: '#100e00', strokeThickness: 3
-        }).setOrigin(0, 0).setDepth(5);
-        this.fpsText = this.add.text(10, 10, 'FPS: --', {
-            fontFamily: "'Impact'", fontSize: '22px', fill: '#ff4444',
-            stroke: '#000', strokeThickness: 2
-        }).setDepth(100);
+        panelGfx.fillStyle(0xf01cff, 1);
+        panelGfx.fillCircle(_icoX + 6, 116, 6);
+        panelGfx.lineStyle(1.5, 0xf8ae0f, 1);
+        panelGfx.strokeCircle(_icoX + 6, 116, 6);
+        this.ballCountText = this.add.bitmapText(_valX, 108, this._gf, '1 шар', 16).setOrigin(0, 0).setDepth(5).setTint(0xcce4ff);
+        this.add.bitmapText(_icoX, 128, this._gf, '⚡', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
+        this.incomePerSecText = this.add.bitmapText(_valX, 128, this._gf, '0$/сек', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
+        this.add.bitmapText(_icoX, 148, this._gf, '◆', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
+        this.passiveIncomeText = this.add.bitmapText(_valX, 148, this._gf, '0$/с', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
+        this._fpsDom = document.createElement('div');
+        Object.assign(this._fpsDom.style, { position:'fixed', top:'6px', left:'8px', color:'#ff4444', fontSize:'18px', fontFamily:'monospace', fontWeight:'bold', zIndex:'9999', pointerEvents:'none', textShadow:'0 0 3px #000' });
+        this._fpsDom.textContent = 'FPS: --';
+        document.body.appendChild(this._fpsDom);
+        this.events.once('shutdown', () => this._fpsDom.remove());
         this.muteBtn = this.add.text(748, 112, '🔊', { fontSize: '22px' })
             .setOrigin(1, 0.5).setInteractive({ useHandCursor: true }).setDepth(10);
         this.muteBtn.on('pointerover', () => this.playSound('hover'));
@@ -765,8 +706,7 @@ class MainScene extends Phaser.Scene {
             menuGfx.strokeRoundedRect(695, 72, 55, 26, 6);
         };
         drawMenuBtn(false);
-        this.add.text(722, 85, 'МЕНЮ', { fontFamily: "'Impact'", fontSize: '14px', fill: '#88ccff', stroke: '#000', strokeThickness: 2 })
-            .setOrigin(0.5).setDepth(11);
+        this.add.bitmapText(722, 85, this._gf, 'МЕНЮ', 14).setOrigin(0.5).setDepth(11).setTint(0x88ccff);
         const menuHit = this.add.rectangle(722, 85, 55, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
         menuHit.on('pointerover', () => { drawMenuBtn(true); this.playSound('hover'); });
         menuHit.on('pointerout', () => drawMenuBtn(false));
@@ -786,14 +726,14 @@ class MainScene extends Phaser.Scene {
                 edBtnGfx.strokeRoundedRect(628, 72, 62, 26, 6);
             };
             drawEdBtn(false);
-            this.add.text(659, 85, '← РЕД', { fontFamily: "'Impact'", fontSize: '13px', fill: '#44ff88', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5).setDepth(11);
+            this.add.bitmapText(659, 85, this._gf, '← РЕД', 13).setOrigin(0.5).setDepth(11).setTint(0x44ff88);
             const edBtnHit = this.add.rectangle(659, 85, 62, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
             edBtnHit.on('pointerover', () => drawEdBtn(true));
             edBtnHit.on('pointerout', () => drawEdBtn(false));
             edBtnHit.on('pointerdown', () => this.scene.start('EditorScene', { levelNum: this.testLevelNum }));
 
             // ── DEV spawn buttons ────────────────────────────────────
-            const devBtnStyle = { fontFamily: "'Impact'", fontSize: '13px', fill: '#ffee44', stroke: '#000', strokeThickness: 2 };
+            const devBtnStyle = { _gf: this._gf, size: 13, tint: 0xffee44 };
             const makeDevBtn = (label, bx, by, onClick) => {
                 const gfx = this.add.graphics().setDepth(10);
                 const draw = (hov) => {
@@ -804,7 +744,7 @@ class MainScene extends Phaser.Scene {
                     gfx.strokeRoundedRect(bx, by, 66, 26, 6);
                 };
                 draw(false);
-                this.add.text(bx + 33, by + 13, label, devBtnStyle).setOrigin(0.5).setDepth(11);
+                this.add.bitmapText(bx + 33, by + 13, devBtnStyle._gf, label, devBtnStyle.size).setOrigin(0.5).setDepth(11).setTint(devBtnStyle.tint);
                 const hit = this.add.rectangle(bx + 33, by + 13, 66, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
                 hit.on('pointerover', () => draw(true));
                 hit.on('pointerout', () => draw(false));
@@ -837,17 +777,17 @@ class MainScene extends Phaser.Scene {
         this.buildSlotUIs();
 
         // ── Upgrades strip (no label, no wrapper) ─────────────────
-        this.buttonBall = this.createButton(167, this.btnY, '🟠', '+ 1 шарик', this.ballCost, () => this.buyBall());
-        this.buttonWallPack = this.createButton(380, this.btnY, '🧱', '+ 3 стены', this.wallPackCost, () => this.buyWallPack());
-        this.buttonIncome = this.createButton(593, this.btnY, '⚡', '+ доход стен', this.incomeCost, () => this.buyIncomeUpgrade());
+        const sharedBtnBg = this.make.graphics({ add: false });
+        this.buttonBall = this.createButton(167, this.btnY, '🟠', '+ 1 шарик', this.ballCost, () => this.buyBall(), sharedBtnBg);
+        this.buttonWallPack = this.createButton(380, this.btnY, '🧱', '+ 3 стены', this.wallPackCost, () => this.buyWallPack(), sharedBtnBg);
+        this.buttonIncome = this.createButton(593, this.btnY, '⚡', '+ доход стен', this.incomeCost, () => this.buyIncomeUpgrade(), sharedBtnBg);
         this._upgradeBtnCenters = [{ cx: 167, cy: this.btnY }, { cx: 380, cy: this.btnY }, { cx: 593, cy: this.btnY }];
+        this.add.renderTexture(0, 0, 760, 870).setDepth(-1).setOrigin(0).draw(sharedBtnBg, 0, 0);
+        sharedBtnBg.destroy();
         this._scheduleUpgradeShimmer();
         this._scheduleRandomBlock();
 
-        this.errorText = this.add.text(this.fieldCX, this.fieldCY, '', {
-            fontSize: '20px', fill: '#ff4444', fontStyle: 'bold',
-            stroke: '#000000', strokeThickness: 4
-        }).setOrigin(0.5).setDepth(30).setAlpha(0);
+        this.errorText = this.add.bitmapText(this.fieldCX, this.fieldCY, this._gf, '', 20).setOrigin(0.5).setDepth(30).setAlpha(0).setTint(0xff4444);
 
         // Wall hover tooltip — right of field
         const ttGfx = this.add.graphics().setDepth(28);
@@ -855,14 +795,8 @@ class MainScene extends Phaser.Scene {
         ttGfx.lineStyle(1.5, 0x44aaff, 0.8); ttGfx.strokeRoundedRect(0, 0, 165, 62, 8);
         ttGfx.setVisible(false);
         this._wallTooltipGfx = ttGfx;
-        this._wallTooltipIps = this.add.text(8, 10, '⚡ 0$/сек', {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '17px', fill: '#44ddff', stroke: '#000000', strokeThickness: 3
-        }).setDepth(29).setVisible(false);
-        this._wallTooltipTotal = this.add.text(8, 36, '💰 0$ всего', {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '17px', fill: '#ffdd44', stroke: '#000000', strokeThickness: 3
-        }).setDepth(29).setVisible(false);
+        this._wallTooltipIps = this.add.bitmapText(8, 10, this._gf, '⚡ 0$/сек', 17).setDepth(29).setVisible(false).setTint(0x44ddff);
+        this._wallTooltipTotal = this.add.bitmapText(8, 36, this._gf, '$ 0$ всего', 17).setDepth(29).setVisible(false).setTint(0xffdd44);
         this._wallTooltipTimer = null;
     }
 
@@ -874,12 +808,7 @@ class MainScene extends Phaser.Scene {
             const bg = this.add.rectangle(cx, cy, 160, 160, 0x000000, 0)
                 .setInteractive({ cursor: 'pointer' });
             const gfx = this.add.graphics().setDepth(2);
-            const valTxt = this.add.text(cx, cy, '', {
-                fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-                fontSize: '22px', fill: '#ffffff',
-                stroke: '#000000', strokeThickness: 5,
-                shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true }
-            }).setOrigin(0.5, 0.5).setDepth(3);
+            const valTxt = this.add.bitmapText(cx, cy, this._gf, '', 22).setOrigin(0.5, 0.5).setDepth(3).setTint(0xffffff);
             const idx = i;
             bg.on('pointerdown', ptr => this.startWallDragFromSlot(ptr, idx));
             bg.on('pointerover', () => { if (idx < this.wallHand.length) this.playSound('hover'); });
@@ -950,9 +879,9 @@ class MainScene extends Phaser.Scene {
                     this._drawSlotWall(slot.gfx, x0, y0, w, h, false, item.incomeValue);
                 }
                 if (slot.valTxt) {
-                    const bonusTxt = item.bonus ? `⭐${item.incomeValue}$` : `${item.incomeValue}$`;
-                    const bonusColor = item.bonus ? '#ffe033' : '#ffffff';
-                    slot.valTxt.setPosition(slot.cx, slot.cy).setText(bonusTxt).setColor(bonusColor);
+                    const bonusTxt = item.bonus ? `★${item.incomeValue}$` : `${item.incomeValue}$`;
+                    const bonusTint = item.bonus ? 0xffe033 : 0xffffff;
+                    slot.valTxt.setPosition(slot.cx, slot.cy).setText(bonusTxt).setTint(bonusTint);
                 }
             } else {
                 slot.bg.disableInteractive();
@@ -1073,7 +1002,7 @@ class MainScene extends Phaser.Scene {
 
     _applySpecialWallStyle(wall, specialType, color, damage) {
         wall.specialType = specialType;
-        if (!wall._fillGfx || !wall._outlineGfx) return;
+        if (!wall._fillGfx) return;
         const bdColor = color || 0x8855dd;
         const colors = specialType === 'trap'
             ? { fill: 0x220000, fillB: 0x440000, outline: 0xff2222 }
@@ -1085,35 +1014,19 @@ class MainScene extends Phaser.Scene {
         const _rr = (specialType === 'trap' || specialType === 'slow')
             ? Math.round(Math.min(wall.width, wall.height) * 0.2)
             : 3;
-        if (_rr > 3 && wall._maskGfx) {
-            wall._drawMask = (wx, wy) => {
-                if (!wall._maskGfx || !wall._maskGfx.active) return;
-                wall._maskGfx.clear();
-                wall._maskGfx.fillStyle(0xffffff);
-                wall._maskGfx.fillRoundedRect(wx - wall.width / 2, wy - wall.height / 2, wall.width, wall.height, _rr);
-            };
-            wall._drawMask(wall.x, wall.y);
+        // Apply special tint — all from same wallShapes atlas so still batches
+        if (specialType !== 'trap' && specialType !== 'slow') {
+            wall.setTint(colors.outline);
         }
-        const _fillA = (specialType === 'trap' || specialType === 'slow') ? 0.3 : 1;
-        wall._drawFill = (ox, oy) => {
-            if (!wall._fillGfx || !wall._fillGfx.active) return;
-            wall._fillGfx.clear();
-            wall._fillGfx.fillGradientStyle(colors.fill, colors.fill, colors.fillB, colors.fillB, _fillA);
-            wall._fillGfx.fillRect(ox - wall.width / 2, oy - wall.height / 2, wall.width, wall.height);
-        };
+        wall._drawFill = (ox, oy) => { if (wall.active) wall.setPosition(ox, oy); };
         wall._drawFill(wall.x, wall.y);
         wall._drawOutline = (ox, oy, color, alpha) => {
-            if (!wall._outlineGfx || !wall._outlineGfx.active) return;
-            wall._outlineGfx.clear();
-            wall._outlineGfx.lineStyle(2, color !== undefined ? color : colors.outline, alpha !== undefined ? alpha : 0.9);
-            wall._outlineGfx.strokeRoundedRect(ox - wall.width / 2, oy - wall.height / 2, wall.width, wall.height, _rr);
+            this._redrawWallOutlineGfx(wall._outlineGfx, wall, ox, oy, color, alpha, colors.outline);
         };
-        wall._drawOutline(wall.x, wall.y);
         if (wall._iconGfx) { try { wall._iconGfx.destroy(); } catch (e) { } wall._iconGfx = null; }
-        // Hide fill + outline for pass-through zones (they look like fields, not walls)
+        // Hide fill for pass-through zones (they look like fields, not walls)
         if (specialType === 'trap' || specialType === 'slow') {
             if (wall._fillGfx) { wall._fillGfx.setDepth(0.8); wall._fillGfx.setAlpha(0); }
-            if (wall._outlineGfx) { wall._outlineGfx.setDepth(1.1); wall._outlineGfx.setAlpha(0); }
         }
         if (specialType === 'trap' || specialType === 'slow') {
             const ig = this.add.graphics().setDepth(1.2);
@@ -1199,17 +1112,15 @@ class MainScene extends Phaser.Scene {
             ease: 'Sine.easeInOut'
         });
 
-        const iconText = this.add.text(x, y, '◆', {
-            fontFamily: "'Impact'", fontSize: '16px', fill: '#ffdd44', stroke: '#1a1000', strokeThickness: 3
-        }).setOrigin(0.5).setDepth(0.55);
+        const iconText = this.add.bitmapText(x, y, this._gf, '◆', 16).setOrigin(0.5).setDepth(0.55).setTint(0xffdd44);
 
-        const txt = this.add.text(x, y + 10, '…$/s', {
-            fontFamily: "'Impact'", fontSize: '11px', fill: '#ffee88', stroke: '#1a1000', strokeThickness: 2
-        }).setOrigin(0.5).setDepth(0.55).setVisible(false);
+        const txt = this.add.bitmapText(x, y + 10, this._gf, '...$/s', 11).setOrigin(0.5).setDepth(0.55).setVisible(false).setTint(0xffee88);
 
-        const zoneObj = { x, y, hw, hh, gfx, ring, iconText, txt,
+        const zoneObj = {
+            x, y, hw, hh, gfx, ring, iconText, txt,
             presenceSeconds: 0, incomePerSecond: 0, totalEarned: 0,
-            _allObjs: [gfx, ring, iconText, txt] };
+            _allObjs: [gfx, ring, iconText, txt]
+        };
         this.zones.push(zoneObj);
         gfx.setInteractive(new Phaser.Geom.Rectangle(x - hw, y - hh, w, h), Phaser.Geom.Rectangle.Contains);
         gfx.on('pointerover', () => this._showZoneTooltip(zoneObj));
@@ -1224,7 +1135,7 @@ class MainScene extends Phaser.Scene {
             earned += zone.incomePerSecond;
             zone.totalEarned = (zone.totalEarned || 0) + zone.incomePerSecond;
             const acc = zone._incomeAccum || 0;
-            zone.txt.setText(acc > 0 ? `${acc.toFixed(1)}$/s` : '…$/s');
+            zone.txt.setText(acc > 0 ? `${acc.toFixed(1)}$/s` : '...$/s');
         });
         if (this.passiveIncomeText) this.passiveIncomeText.setText(`${earned}$/с`);
         if (earned > 0) {
@@ -1246,11 +1157,7 @@ class MainScene extends Phaser.Scene {
         const wall = this.createWall(x, y, D, D, 'block', incomeValue);
 
         // "БОНУС БЛОК" label
-        const label = this.add.text(x, y - 28, '✨ БОНУС БЛОК', {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '17px', fill: '#ffe033',
-            stroke: '#000000', strokeThickness: 4
-        }).setOrigin(0.5).setDepth(27);
+        const label = this.add.bitmapText(x, y - 28, this._gf, '✨ БОНУС БЛОК', 17).setOrigin(0.5).setDepth(27).setTint(0xffe033);
         this.tweens.add({ targets: label, y: y - 62, alpha: 0, duration: 1200, delay: 350, ease: 'Power1', onComplete: () => label.destroy() });
     }
 
@@ -1285,9 +1192,9 @@ class MainScene extends Phaser.Scene {
         this.tweens.add({ targets: glow, alpha: 0, duration: 480, ease: 'Power2', onComplete: () => glow.destroy() });
     }
 
-    createButton(cx, cy, emoji, label, initCost, callback) {
+    createButton(cx, cy, emoji, label, initCost, callback, sharedBg) {
         // block background — subtle dark panel for the whole column
-        const blockBg = this.add.graphics();
+        const blockBg = sharedBg || this.add.graphics();
         blockBg.fillStyle(0x0d2818, 0.72);
         blockBg.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
         blockBg.lineStyle(1, 0x1e5a38, 0.4);
@@ -1299,16 +1206,13 @@ class MainScene extends Phaser.Scene {
 
         // price panel
         const px = cx - 80, py = cy - 78, pw = 160, ph = 20;
-        const pnlGfx = this.add.graphics();
+        const pnlGfx = sharedBg || this.add.graphics();
         pnlGfx.fillStyle(0x071609, 1);
         pnlGfx.fillRoundedRect(px, py, pw, ph, 5);
         pnlGfx.lineStyle(1, 0x1e6a3d, 0.7);
         pnlGfx.strokeRoundedRect(px, py, pw, ph, 5);
 
-        const ctTxt = this.add.text(cx, py + ph / 2, `${initCost.toLocaleString()}$`, {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '23px', fill: '#ffdd88', stroke: '#010e05', strokeThickness: 2
-        }).setOrigin(0.5, 0.5);
+        const ctTxt = this.add.bitmapText(cx, py + ph / 2, this._gf, `${initCost.toLocaleString()}$`, 23).setOrigin(0.5, 0.5).setTint(0xffdd88);
 
         // illustration container — setScale(1.8)
         const illY = cy - 5;
@@ -1318,10 +1222,7 @@ class MainScene extends Phaser.Scene {
             gfx.fillStyle(0x00ccff, 1); gfx.fillCircle(-20, 0, 22);
             gfx.lineStyle(3, 0x88eeff, 1); gfx.strokeCircle(-20, 0, 22);
             gfx.fillStyle(0xffffff, 0.5); gfx.fillCircle(-28, -8, 6);
-            const plus = this.add.text(6, 0, '+', {
-                fontSize: '40px', fill: '#00ee44', fontStyle: 'bold',
-                stroke: '#003311', strokeThickness: 3
-            }).setOrigin(0, 0.5);
+            const plus = this.add.bitmapText(6, 0, this._gf, '+', 40).setOrigin(0, 0.5).setTint(0x00ee44);
             illCon.add([gfx, plus]);
         } else if (emoji === '🧱') {
             // 2 small blocks behind (faded = distant), 1 large block in front
@@ -1341,16 +1242,13 @@ class MainScene extends Phaser.Scene {
 
         // description background
         const descY = cy + 57;
-        const descBg = this.add.graphics();
+        const descBg = sharedBg || this.add.graphics();
         descBg.fillStyle(0x0e2e16, 1);
         descBg.fillRoundedRect(cx - 80, descY - 11, 160, 22, 5);
         descBg.lineStyle(1, 0x2a7a4d, 0.7);
         descBg.strokeRoundedRect(cx - 80, descY - 11, 160, 22, 5);
 
-        const lbTxt = this.add.text(cx, descY, label, {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '21px', fill: '#ffffff', stroke: '#010e05', strokeThickness: 2
-        }).setOrigin(0.5, 0.5);
+        const lbTxt = this.add.bitmapText(cx, descY, this._gf, label, 21).setOrigin(0.5, 0.5).setTint(0xffffff);
 
         // hover highlight — bright glow border + white tint, only when affordable
         const hoverGfx = this.add.graphics();
@@ -1416,8 +1314,7 @@ class MainScene extends Phaser.Scene {
                 const wall = this._carryingFieldWall;
                 const dx = pointer.x - (wall._lastPx !== undefined ? wall._lastPx : pointer.x);
                 const dy = pointer.y - (wall._lastPy !== undefined ? wall._lastPy : pointer.y);
-                wall.tilePositionX -= dx * 0.7;
-                wall.tilePositionY -= dy * 0.7;
+                if (wall.tilePositionX !== undefined) { wall.tilePositionX -= dx * 0.7; wall.tilePositionY -= dy * 0.7; }
                 wall._lastPx = pointer.x; wall._lastPy = pointer.y;
                 wall.setPosition(pointer.x, pointer.y);
                 if (wall._drawMask) wall._drawMask(pointer.x, pointer.y);
@@ -1499,6 +1396,14 @@ class MainScene extends Phaser.Scene {
             this.updateUI();
         });
 
+        this.input.keyboard.on('keydown-SPACE', () => {
+            const hist = this._fpsHist || {};
+            const sorted = Object.keys(hist).map(Number).sort((a, b) => b - a);
+            console.log('=== FPS histogram ===');
+            sorted.forEach(fps => console.log(`${fps} fps: ${hist[fps]} frames`));
+            console.log('=====================');
+        });
+
         this.input.keyboard.on('keydown-ESC', () => {
             if (this.draggingNewWall && this.wallPreview) {
                 this.wallPreview.destroy(); this.wallPreview = null;
@@ -1521,7 +1426,8 @@ class MainScene extends Phaser.Scene {
                 if (wall._drawFill) wall._drawFill(wall._originX, wall._originY);
                 wall.setDepth(0);
                 if (wall._fillGfx) wall._fillGfx.setDepth(1);
-                if (wall._drawOutline) { wall._drawOutline(wall._originX, wall._originY); wall._outlineGfx.setAlpha(1); wall._outlineGfx.setDepth(2.5); }
+                if (wall._fillGfx) wall._fillGfx.setDepth(1);
+                if (wall._outlineGfx && wall._outlineGfx.active) { wall._outlineGfx.destroy(); wall._outlineGfx = null; }
                 if (wall.valueText) { wall.valueText.setPosition(wall._originX, wall._originY); wall.valueText.setDepth(3); }
                 this.wallsGroup.add(wall); wall.body.updateFromGameObject();
                 this.updateUI();
@@ -1609,11 +1515,7 @@ class MainScene extends Phaser.Scene {
         this._slotDragOutlineGfx = sdOGfx;
         this._drawSlotDragOutline = drawSDO;
 
-        this._dragIncomeText = this.add.text(pointer.x, pointer.y - h / 2 - 14, `${item.incomeValue}$`, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '20px', fill: '#ffdd44',
-            stroke: '#000000', strokeThickness: 4
-        }).setOrigin(0.5, 1).setDepth(11);
+        this._dragIncomeText = this.add.bitmapText(pointer.x, pointer.y - h / 2 - 14, this._gf, `${item.incomeValue}$`, 20).setOrigin(0.5, 1).setDepth(11).setTint(0xffdd44);
 
         // dust particles for slot drag
         this._slotDragParticles = this.add.particles(pointer.x, pointer.y, 'wallDust', {
@@ -1666,7 +1568,16 @@ class MainScene extends Phaser.Scene {
         this.wallsGroup.remove(wall);
         wall.setDepth(12);
         if (wall._fillGfx) wall._fillGfx.setDepth(12);
-        if (wall._outlineGfx) { wall._outlineGfx.setAlpha(1); wall._outlineGfx.setDepth(12.5); }
+        // create drag outline Graphics (exists only while dragging)
+        if (!wall._outlineGfx) {
+            const { top: _oc } = this._incomeToColors(wall.incomeValue);
+            const dragGfx = this.add.graphics().setDepth(12.5);
+            wall._outlineGfx = dragGfx;
+            this._redrawWallOutlineGfx(dragGfx, wall, wall.x, wall.y, _oc, 0.9, _oc);
+            wall.once('destroy', () => { if (wall._outlineGfx && wall._outlineGfx.active) { wall._outlineGfx.destroy(); wall._outlineGfx = null; } });
+        } else {
+            wall._outlineGfx.setAlpha(1); wall._outlineGfx.setDepth(12.5);
+        }
         if (wall.valueText) wall.valueText.setDepth(13);
         this._physicsSpeedMult = 0.5;
         this._startCarryParticles(wall);
@@ -1712,8 +1623,7 @@ class MainScene extends Phaser.Scene {
         const _doMerge = (other) => {
             other.incomeValue += wall.incomeValue;
             if (other.valueText) other.valueText.setText(`${other.incomeValue}$`);
-            if (other._drawFill) other._drawFill(other.x, other.y);
-            if (other._drawOutline) other._drawOutline(other.x, other.y);
+            this._refreshWallTexture(other);
             if (other._fillGfx) this.tweens.add({ targets: other._fillGfx, alpha: 0.2, duration: 80, yoyo: true, onComplete: () => { if (other._fillGfx && other._fillGfx.active) other._fillGfx.setAlpha(1); } });
             if (wall.valueText) wall.valueText.destroy(); wall.destroy();
             this.placedWalls--; this.playSound('merge');
@@ -1766,6 +1676,7 @@ class MainScene extends Phaser.Scene {
                 const newVal = Math.max(1, Math.floor(wall.incomeValue * 0.9));
                 wall.incomeValue = newVal;
                 if (wall.valueText && wall.valueText.active) wall.valueText.setText(`${newVal}$`);
+                this._refreshWallTexture(wall);
             }
             wall._cachedRects = null;
             wall.setPosition(fx, fy);
@@ -1773,7 +1684,7 @@ class MainScene extends Phaser.Scene {
             if (wall._drawMask) wall._drawMask(fx, fy);
             if (wall._drawFill) wall._drawFill(fx, fy);
             if (wall._fillGfx) wall._fillGfx.setDepth(1);
-            if (wall._drawOutline) { wall._drawOutline(fx, fy); wall._outlineGfx.setAlpha(1); wall._outlineGfx.setDepth(2.5); }
+            if (wall._outlineGfx && wall._outlineGfx.active) { wall._outlineGfx.destroy(); wall._outlineGfx = null; }
             if (wall.valueText) { wall.valueText.setPosition(fx, fy); wall.valueText.setDepth(3); }
             this.wallsGroup.add(wall); wall.body.updateFromGameObject();
         }
@@ -1872,9 +1783,7 @@ class MainScene extends Phaser.Scene {
         if (ball._multLabel && ball._multLabel.active) {
             ball._multLabel.setText(`x${ball.multiplier}`);
         } else {
-            ball._multLabel = this.add.text(ball.x, ball.y, `x${ball.multiplier}`, {
-                fontFamily: "'Impact'", fontSize: '11px', fill: '#ffffff', stroke: '#000000', strokeThickness: 3
-            }).setOrigin(0.5).setDepth(2.5);
+            ball._multLabel = this.add.bitmapText(ball.x, ball.y, this._gf, `x${ball.multiplier}`, 11).setOrigin(0.5).setDepth(2.5).setTint(0xffffff);
             ball.on('destroy', () => { if (ball._multLabel && ball._multLabel.active) ball._multLabel.destroy(); });
         }
     }
@@ -1918,8 +1827,7 @@ class MainScene extends Phaser.Scene {
             const oldVal = wall.incomeValue;
             const pct = 0.08 + Math.random() * 0.03;
             wall.incomeValue = Math.ceil(oldVal + 1 + oldVal * pct);
-            if (wall._drawFill) wall._drawFill(wall.x, wall.y);
-            if (wall._drawOutline) wall._drawOutline(wall.x, wall.y);
+            this._refreshWallTexture(wall);
             this._animateIncomeUpgrade(wall, oldVal, wall.incomeValue);
         });
         this.wallHand.forEach(item => {
@@ -2021,13 +1929,8 @@ class MainScene extends Phaser.Scene {
     }
 
     _showBonusMessage(count) {
-        const msg = count > 1 ? `🎉 ${count}x БОНУС!` : '🎉 УРА! БОНУС!';
-        const txt = this.add.text(380, 540, msg, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '34px', fill: '#ffe033',
-            stroke: '#000000', strokeThickness: 7,
-            shadow: { offsetX: 0, offsetY: 2, color: '#cc6600', blur: 10, fill: true }
-        }).setOrigin(0.5).setDepth(30);
+        const msg = count > 1 ? `★ ${count}x БОНУС!` : '★ УРА! БОНУС!';
+        const txt = this.add.bitmapText(380, 540, this._gf, msg, 34).setOrigin(0.5).setDepth(30).setTint(0xffe033);
         this.tweens.add({
             targets: txt, y: 490, scaleX: 1.18, scaleY: 1.18,
             duration: 320, ease: 'Back.easeOut',
@@ -2072,6 +1975,123 @@ class MainScene extends Phaser.Scene {
         };
     }
 
+    _initWallShapesAtlas() {
+        if (this.textures.exists('wallShapes')) return;
+        const D = this.BALL_R * 2;
+        const PAD = 2;
+        const configs = [
+            { name: 'horizontal', w: D * 3, h: D },
+            { name: 'vertical',   w: D,     h: D * 3 },
+            { name: 'block',      w: D,     h: D },
+            { name: 'tDown',      w: D * 3, h: D * 2 },
+            { name: 'tUp',        w: D * 3, h: D * 2 },
+            { name: 'tLeft',      w: D * 2, h: D * 3 },
+            { name: 'tRight',     w: D * 2, h: D * 3 },
+        ];
+        let cx = 0, maxH = 0;
+        const layout = configs.map(c => { const lx = cx; cx += c.w + PAD; maxH = Math.max(maxH, c.h); return { ...c, x: lx }; });
+        const canvas = document.createElement('canvas');
+        canvas.width = cx; canvas.height = maxH;
+        const ctx = canvas.getContext('2d');
+        for (const { name, x, w, h } of layout) {
+            // gray fill so vertex-tint gives darker fill than white outline
+            ctx.fillStyle = '#aaaaaa';
+            if (name === 'tDown') {
+                ctx.fillRect(x, 0, w, D); ctx.fillRect(x + D, D, D, D);
+            } else if (name === 'tUp') {
+                ctx.fillRect(x + D, 0, D, D); ctx.fillRect(x, D, w, D);
+            } else if (name === 'tLeft') {
+                ctx.fillRect(x + D, 0, D, h); ctx.fillRect(x, (h - D) / 2, D, D);
+            } else if (name === 'tRight') {
+                ctx.fillRect(x, 0, D, h); ctx.fillRect(x + D, (h - D) / 2, D, D);
+            } else {
+                ctx.fillRect(x, 0, w, h);
+            }
+            // white outline — tint makes it brighter than gray fill = natural border highlight
+            ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.beginPath();
+            if (name === 'tDown') {
+                ctx.moveTo(x + 1, 1); ctx.lineTo(x + w - 1, 1);
+                ctx.lineTo(x + w - 1, D); ctx.lineTo(x + 2 * D - 1, D);
+                ctx.lineTo(x + 2 * D - 1, h - 1); ctx.lineTo(x + D + 1, h - 1);
+                ctx.lineTo(x + D + 1, D); ctx.lineTo(x + 1, D); ctx.closePath();
+            } else if (name === 'tUp') {
+                ctx.moveTo(x + D + 1, 1); ctx.lineTo(x + 2 * D - 1, 1);
+                ctx.lineTo(x + 2 * D - 1, D); ctx.lineTo(x + w - 1, D);
+                ctx.lineTo(x + w - 1, h - 1); ctx.lineTo(x + 1, h - 1);
+                ctx.lineTo(x + 1, D); ctx.lineTo(x + D + 1, D); ctx.closePath();
+            } else if (name === 'tLeft') {
+                const cy = (h - D) / 2;
+                ctx.moveTo(x + D + 1, 1); ctx.lineTo(x + w - 1, 1);
+                ctx.lineTo(x + w - 1, h - 1); ctx.lineTo(x + D + 1, h - 1);
+                ctx.lineTo(x + D + 1, cy + D - 1); ctx.lineTo(x + 1, cy + D - 1);
+                ctx.lineTo(x + 1, cy + 1); ctx.lineTo(x + D + 1, cy + 1); ctx.closePath();
+            } else if (name === 'tRight') {
+                const cy = (h - D) / 2;
+                ctx.moveTo(x + 1, 1); ctx.lineTo(x + D - 1, 1);
+                ctx.lineTo(x + D - 1, cy + 1); ctx.lineTo(x + w - 1, cy + 1);
+                ctx.lineTo(x + w - 1, cy + D - 1); ctx.lineTo(x + D - 1, cy + D - 1);
+                ctx.lineTo(x + D - 1, h - 1); ctx.lineTo(x + 1, h - 1); ctx.closePath();
+            } else {
+                ctx.rect(x + 1, 1, w - 2, h - 2);
+            }
+            ctx.stroke();
+        }
+        this.textures.addCanvas('wallShapes', canvas);
+        const tex = this.textures.get('wallShapes');
+        for (const { name, x, w, h } of layout) tex.add(name, 0, x, 0, w, h);
+    }
+
+    _setWallTint(wall, val) {
+        const { top, bot } = this._incomeToColors(val);
+        wall.setTint(top, top, bot, bot);
+    }
+
+    _refreshWallTexture(wall) {
+        if (!wall || !wall.active) return;
+        this._setWallTint(wall, wall.incomeValue);
+    }
+
+    _redrawWallOutlineGfx(g, wall, ox, oy, color, alpha, defaultColor) {
+        if (!g || !g.active) return;
+        const D = this.BALL_R * 2;
+        const hw = wall.width / 2, hh = wall.height / 2;
+        const _c = color !== undefined ? color : defaultColor;
+        const _a = alpha !== undefined ? alpha : 0.9;
+        g.clear();
+        g.lineStyle(2, _c, _a);
+        if (wall.wallType === 'tDown') {
+            g.beginPath();
+            g.moveTo(ox - hw, oy - hh); g.lineTo(ox + hw, oy - hh);
+            g.lineTo(ox + hw, oy - hh + D); g.lineTo(ox + D / 2, oy - hh + D);
+            g.lineTo(ox + D / 2, oy + hh); g.lineTo(ox - D / 2, oy + hh);
+            g.lineTo(ox - D / 2, oy - hh + D); g.lineTo(ox - hw, oy - hh + D);
+            g.closePath(); g.strokePath();
+        } else if (wall.wallType === 'tUp') {
+            g.beginPath();
+            g.moveTo(ox - D / 2, oy - hh); g.lineTo(ox + D / 2, oy - hh);
+            g.lineTo(ox + D / 2, oy - hh + D); g.lineTo(ox + hw, oy - hh + D);
+            g.lineTo(ox + hw, oy + hh); g.lineTo(ox - hw, oy + hh);
+            g.lineTo(ox - hw, oy - hh + D); g.lineTo(ox - D / 2, oy - hh + D);
+            g.closePath(); g.strokePath();
+        } else if (wall.wallType === 'tLeft') {
+            g.beginPath();
+            g.moveTo(ox - hw + D, oy - hh); g.lineTo(ox + hw, oy - hh);
+            g.lineTo(ox + hw, oy + hh); g.lineTo(ox - hw + D, oy + hh);
+            g.lineTo(ox - hw + D, oy + D / 2); g.lineTo(ox - hw, oy + D / 2);
+            g.lineTo(ox - hw, oy - D / 2); g.lineTo(ox - hw + D, oy - D / 2);
+            g.closePath(); g.strokePath();
+        } else if (wall.wallType === 'tRight') {
+            g.beginPath();
+            g.moveTo(ox - hw, oy - hh); g.lineTo(ox - hw + D, oy - hh);
+            g.lineTo(ox - hw + D, oy - D / 2); g.lineTo(ox + hw, oy - D / 2);
+            g.lineTo(ox + hw, oy + D / 2); g.lineTo(ox - hw + D, oy + D / 2);
+            g.lineTo(ox - hw + D, oy + hh); g.lineTo(ox - hw, oy + hh);
+            g.closePath(); g.strokePath();
+        } else {
+            g.strokeRoundedRect(ox - hw, oy - hh, wall.width, wall.height, 5);
+        }
+    }
+
     // ──── Physics ────
 
     _getWallCollisionRects(wall) {
@@ -2096,7 +2116,12 @@ class MainScene extends Phaser.Scene {
     }
 
     update(time, delta) {
-        if (this.fpsText && this.game.loop.frame % 20 === 0) this.fpsText.setText('FPS: ' + Math.round(1000 / delta));
+        // if (this.fpsText && this.game.loop.frame % 20 === 0) {
+        //     this.fpsText.setText('FPS: ' + Math.round(1000 / this.game.loop.delta));
+        // }
+        const _fps = Math.round(1000 / this.game.loop.delta);
+        if (this.game.loop.frame % 10 === 0) this._fpsDom.textContent = 'FPS: ' + _fps;
+        this._fpsHist[_fps] = (this._fpsHist[_fps] || 0) + 1;
         const r = Math.round(this.BALL_R * 0.9);
         const minX = this.fieldOffsetX + r, maxX = this.fieldOffsetX + this.fieldSize - r;
         const minY = this.fieldOffsetY + r, maxY = this.fieldOffsetY + this.fieldSize - r;
@@ -2281,10 +2306,7 @@ class MainScene extends Phaser.Scene {
                         && ball.y >= zone.y - zone.hh - r && ball.y <= zone.y + zone.hh + r;
                     if (_zIn && !zone._ballsInside.has(ball)) {
                         zone._incomeAccum = (zone._incomeAccum || 0) + 0.1;
-                        const _zt = this.add.text(zone.x, zone.y - 8, '+0.1$/с', {
-                            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-                            fontSize: '14px', fill: '#bbcc44', stroke: '#111100', strokeThickness: 3
-                        }).setOrigin(0.5).setDepth(19).setAlpha(0.85);
+                        const _zt = this.add.bitmapText(zone.x, zone.y - 8, this._gf, '+0.1$/с', 14).setOrigin(0.5).setDepth(19).setAlpha(0.85).setTint(0xbbcc44);
                         this.tweens.add({
                             targets: _zt, y: zone.y - 30, alpha: 0, duration: 800, ease: 'Power2',
                             onComplete: () => _zt.destroy()
@@ -2320,13 +2342,13 @@ class MainScene extends Phaser.Scene {
             if (isTrap) {
                 wall._trapWindow = (wall._trapWindow || []).filter(e => n - e.t < 3000);
                 const ps = wall._trapWindow.reduce((a, e) => a + e.v, 0) / 3;
-                this._wallTooltipIps.setText(`💀 ${Math.round(ps).toLocaleString()}$/сек`);
-                this._wallTooltipTotal.setText(`🩸 ${(wall.totalTaken || 0).toLocaleString()}$ забрано`);
+                this._wallTooltipIps.setText(`× ${Math.round(ps).toLocaleString()}$/сек`);
+                this._wallTooltipTotal.setText(`× ${(wall.totalTaken || 0).toLocaleString()}$ забрано`);
             } else {
                 wall._wallIncWin = (wall._wallIncWin || []).filter(e => n - e.t < 3000);
                 const ps = wall._wallIncWin.reduce((a, e) => a + e.v, 0) / 3;
                 this._wallTooltipIps.setText(`⚡ ${Math.round(ps).toLocaleString()}$/сек`);
-                this._wallTooltipTotal.setText(`💰 ${(wall.wallTotalEarned || 0).toLocaleString()}$ всего`);
+                this._wallTooltipTotal.setText(`$ ${(wall.wallTotalEarned || 0).toLocaleString()}$ всего`);
             }
         };
         update();
@@ -2351,7 +2373,7 @@ class MainScene extends Phaser.Scene {
         const update = () => {
             if (!this._wallTooltipGfx || !this._wallTooltipGfx.visible) return;
             this._wallTooltipIps.setText(`◆ ${(zone._incomeAccum || 0).toFixed(1)}$/с`);
-            this._wallTooltipTotal.setText(`💰 ${Math.round(zone.totalEarned || 0).toLocaleString()}$ всего`);
+            this._wallTooltipTotal.setText(`$ ${Math.round(zone.totalEarned || 0).toLocaleString()}$ всего`);
         };
         update();
         if (this._wallTooltipTimer) this._wallTooltipTimer.destroy();
@@ -2468,7 +2490,7 @@ class MainScene extends Phaser.Scene {
     updateButton(button, cost) {
         const ok = this.money >= cost;
         button.bg._cost = cost;
-        button.ctTxt.setText(`${cost.toLocaleString()}$`).setColor(ok ? '#ffdd22' : '#ff3333');
+        button.ctTxt.setText(`${cost.toLocaleString()}$`).setTint(ok ? 0xffdd22 : 0xff3333);
     }
 
     winGame() {
@@ -2487,15 +2509,8 @@ class MainScene extends Phaser.Scene {
         panel.lineStyle(3, 0xffdd22, 1); panel.strokeRoundedRect(160, 250, 440, 220, 18);
 
         const lvl = this.registry.get('level') || 1;
-        this.add.text(380, 295, `УРОВЕНЬ ${lvl} ПРОЙДЕН!`, {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '36px', fill: '#ffdd22', stroke: '#000000', strokeThickness: 6
-        }).setOrigin(0.5).setDepth(32);
-
-        this.add.text(380, 348, `Заработано ${this.targetMoney.toLocaleString()}$`, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '22px', fill: '#44aaff', stroke: '#000000', strokeThickness: 4
-        }).setOrigin(0.5).setDepth(32);
+        this.add.bitmapText(380, 295, this._gf, `УРОВЕНЬ ${lvl} ПРОЙДЕН!`, 36).setOrigin(0.5).setDepth(32).setTint(0xffdd22);
+        this.add.bitmapText(380, 348, this._gf, `Заработано ${this.targetMoney.toLocaleString()}$`, 22).setOrigin(0.5).setDepth(32).setTint(0x44aaff);
 
         // Save progress
         try {
@@ -2504,10 +2519,7 @@ class MainScene extends Phaser.Scene {
         } catch(e) {}
 
         const _isLast = lvl >= 5;
-        const goTxt = this.add.text(380, 410, _isLast ? '→ Бесконечный режим' : `→ Уровень ${lvl + 1}`, {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '28px', fill: '#88ff88', stroke: '#000000', strokeThickness: 5
-        }).setOrigin(0.5).setDepth(32).setAlpha(0);
+        const goTxt = this.add.bitmapText(380, 410, this._gf, _isLast ? '→ Бесконечный режим' : `→ Уровень ${lvl + 1}`, 28).setOrigin(0.5).setDepth(32).setAlpha(0).setTint(0x88ff88);
         this.time.delayedCall(900, () => {
             this.tweens.add({ targets: goTxt, alpha: 1, duration: 500, ease: 'Power2' });
         });
@@ -2539,10 +2551,11 @@ class MainScene extends Phaser.Scene {
 
 class StartScene extends Phaser.Scene {
     constructor() { super('StartScene'); }
-
+    preload() { _preloadGameFont(this); }
     create() {
         const W = 760, H = 870;
         const ch = (n) => '#' + n.toString(16).padStart(6, '0');
+        const GF = _initGameFont(this);
         this.add.rectangle(W / 2, H / 2, W, H, 0x0b1520);
         const dotGfx = this.add.graphics();
         dotGfx.fillStyle(0xffffff, 0.025);
@@ -2550,18 +2563,9 @@ class StartScene extends Phaser.Scene {
             for (let gy = 20; gy < H; gy += 40)
                 dotGfx.fillCircle(gx, gy, 1.5);
 
-        this.add.text(W / 2, H * 0.23, 'BUMPER', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '88px', fill: '#18ee50', stroke: '#010e05', strokeThickness: 10
-        }).setOrigin(0.5);
-        this.add.text(W / 2, H * 0.23 + 90, 'БИЗНЕС', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '50px', fill: '#44aaff', stroke: '#010e05', strokeThickness: 7
-        }).setOrigin(0.5);
-        this.add.text(W / 2, H * 0.23 + 148, 'Строй стены — зарабатывай деньги', {
-            fontFamily: "'Impact', 'Arial Narrow', sans-serif",
-            fontSize: '20px', fill: '#aaaacc', stroke: '#000000', strokeThickness: 3
-        }).setOrigin(0.5);
+        this.add.bitmapText(W / 2, H * 0.23, GF, 'BUMPER', 88).setOrigin(0.5).setTint(0x18ee50);
+        this.add.bitmapText(W / 2, H * 0.23 + 90, GF, 'БИЗНЕС', 50).setOrigin(0.5).setTint(0x44aaff);
+        this.add.bitmapText(W / 2, H * 0.23 + 148, GF, 'Строй стены — зарабатывай деньги', 20).setOrigin(0.5).setTint(0xaaaacc);
 
         let hasInfSave = false;
         try { hasInfSave = !!localStorage.getItem('bumper_save_infinite'); } catch (e) { }
@@ -2619,14 +2623,9 @@ class StartScene extends Phaser.Scene {
             };
             draw(false);
             const mainY = def.sub ? by - 8 : by;
-            const fs = def.label.length > 15 ? '26px' : '34px';
-            const txt = this.add.text(W / 2, mainY, def.label, {
-                fontFamily: "'Impact', 'Arial Black', sans-serif",
-                fontSize: fs, fill: ch(def.clr), stroke: '#010e05', strokeThickness: 4
-            }).setOrigin(0.5);
-            if (def.sub) this.add.text(W / 2, by + 18, def.sub, {
-                fontFamily: "'Arial'", fontSize: '13px', fill: ch(def.clr), alpha: 0.7
-            }).setOrigin(0.5).setAlpha(0.6);
+            const sz = def.label.length > 15 ? 26 : 34;
+            const txt = this.add.bitmapText(W / 2, mainY, GF, def.label, sz).setOrigin(0.5).setTint(def.clr);
+            if (def.sub) this.add.bitmapText(W / 2, by + 18, GF, def.sub, 13).setOrigin(0.5).setAlpha(0.6).setTint(def.clr);
             const hit = this.add.rectangle(W / 2, by, bw, bh, 0, 0).setInteractive({ useHandCursor: true });
             hit.on('pointerover', () => draw(true));
             hit.on('pointerout', () => draw(false));
@@ -2639,10 +2638,11 @@ class StartScene extends Phaser.Scene {
 
 class EditorScene extends Phaser.Scene {
     constructor() { super('EditorScene'); }
-
+    preload() { _preloadGameFont(this); }
     init(data) {
         this.levelNum = (data && data.levelNum) || null;
     }
+
 
     create() {
         const W = 760, H = 870;
@@ -2652,6 +2652,7 @@ class EditorScene extends Phaser.Scene {
         const GSX = FOX + Math.floor((FS - COLS * D) / 2); // grid start x = 200
         const GSY = FOY + Math.floor((FS - ROWS * D) / 2); // grid start y = 118
 
+        const GF = _initGameFont(this); this._gf = GF;
         this.D = D; this.COLS = COLS; this.ROWS = ROWS; this.GSX = GSX; this.GSY = GSY;
         this.cells = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
         this.currentTool = 'boundary';
@@ -2701,7 +2702,7 @@ class EditorScene extends Phaser.Scene {
 
         // Title
         const edTitle = this.levelNum ? `РЕД. УР. ${this.levelNum}` : 'РЕДАКТОР';
-        this.add.text(W / 2 - 60, FOY - 26, edTitle, { fontFamily: "'Impact'", fontSize: '28px', fill: '#ffcc44', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(2);
+        this.add.bitmapText(W / 2 - 60, FOY - 26, GF, edTitle, 28).setOrigin(0.5).setDepth(2).setTint(0xffcc44);
 
         // Tool palette
         const tools = [
@@ -2726,8 +2727,8 @@ class EditorScene extends Phaser.Scene {
                 g.strokeRoundedRect(tBtnX, by, tBtnW, tBtnH, 8);
             };
             draw(t.key === this.currentTool);
-            this.add.text(tBtnX + tBtnW / 2, by + (t.desc ? 11 : 22), t.label, { fontFamily: "'Impact'", fontSize: '15px', fill: '#' + t.color.toString(16).padStart(6, '0'), stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(3);
-            if (t.desc) this.add.text(tBtnX + tBtnW / 2, by + 30, t.desc, { fontFamily: "'Arial'", fontSize: '11px', fill: '#aaaaaa' }).setOrigin(0.5).setDepth(3);
+            this.add.bitmapText(tBtnX + tBtnW / 2, by + (t.desc ? 11 : 22), GF, t.label, 15).setOrigin(0.5).setDepth(3).setTint(t.color);
+            if (t.desc) this.add.bitmapText(tBtnX + tBtnW / 2, by + 30, GF, t.desc, 11).setOrigin(0.5).setDepth(3).setTint(0xaaaaaa);
             const hit = this.add.rectangle(tBtnX + tBtnW / 2, by + tBtnH / 2, tBtnW, tBtnH, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
             this._toolBtns[t.key] = { g, draw, key: t.key };
             hit.on('pointerdown', () => {
@@ -2739,7 +2740,7 @@ class EditorScene extends Phaser.Scene {
 
         // Color swatches for boundary wall
         tY += 4;
-        this.add.text(tBtnX + tBtnW / 2, tY, 'ЦВЕТ СТЕНЫ', { fontFamily: "'Arial'", fontSize: '10px', fill: '#888888' }).setOrigin(0.5, 0).setDepth(2);
+        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, 'ЦВЕТ СТЕНЫ', 10).setOrigin(0.5, 0).setDepth(2).setTint(0x888888);
         tY += 14;
         const bdColors = [0x888888, 0x8855dd, 0x336644, 0x336688, 0xaa5533];
         const swSz = 20, swGap = 5;
@@ -2769,7 +2770,7 @@ class EditorScene extends Phaser.Scene {
 
         // Trap damage selector
         this.currentTrapDamage = 5;
-        this.add.text(tBtnX + tBtnW / 2, tY, 'УРОН ЛОВУШКИ', { fontFamily: "'Arial'", fontSize: '10px', fill: '#ff8888' }).setOrigin(0.5, 0).setDepth(2);
+        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, 'УРОН ЛОВУШКИ', 10).setOrigin(0.5, 0).setDepth(2).setTint(0xff8888);
         tY += 14;
         const trapDmgs = [1, 2, 4, 5, 10];
         const tdSz = Math.floor((tBtnW - 4 * 4) / 5);
@@ -2786,7 +2787,7 @@ class EditorScene extends Phaser.Scene {
                 bg.strokeRect(bx, syd, tdSz, 22);
             };
             drawTd(d === this.currentTrapDamage);
-            this.add.text(bx + tdSz / 2, syd + 11, `${d}$`, { fontFamily: "'Impact'", fontSize: '11px', fill: '#ff8888', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5).setDepth(3);
+            this.add.bitmapText(bx + tdSz / 2, syd + 11, GF, `${d}$`, 11).setOrigin(0.5).setDepth(3).setTint(0xff8888);
             const hit = this.add.rectangle(bx + tdSz / 2, syd + 11, tdSz, 22, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
             this._trapDmgBtns.push({ bg, drawTd, val: d });
             hit.on('pointerdown', () => {
@@ -2797,8 +2798,72 @@ class EditorScene extends Phaser.Scene {
         tY += 22 + 8;
 
         // Legend
-        this.add.text(tBtnX + tBtnW / 2, tY, '💀 = -деньги\n❄ = замедление\n◆ = зона дохода', { fontFamily: "'Arial'", fontSize: '11px', fill: '#888888', align: 'center' }).setOrigin(0.5, 0).setDepth(2);
+        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, '× = -деньги\n❄ = замедление\n◆ = зона дохода', 11).setOrigin(0.5, 0).setDepth(2).setTint(0x888888).setCenterAlign();
         tY += 52;
+
+        // Target money input
+        this.editorTargetMoney = 2000;
+        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, 'ЦЕЛЬ УРОВНЯ ($)', 10).setOrigin(0.5, 0).setDepth(2).setTint(0xffcc44);
+        tY += 15;
+
+        const targetGfx = this.add.graphics().setDepth(2);
+        const drawTargetBox = (focused) => {
+            targetGfx.clear();
+            targetGfx.fillStyle(focused ? 0x1a1400 : 0x0d0a00, 1);
+            targetGfx.fillRoundedRect(tBtnX, tY, tBtnW, 28, 6);
+            targetGfx.lineStyle(2, focused ? 0xffcc44 : 0x665500, 1);
+            targetGfx.strokeRoundedRect(tBtnX, tY, tBtnW, 28, 6);
+        };
+        drawTargetBox(false);
+        this._targetValText = this.add.bitmapText(tBtnX + tBtnW / 2, tY + 14, GF, '2000$', 15).setOrigin(0.5).setDepth(3).setTint(0xffcc44);
+
+        // minus / plus buttons
+        const steps = [100, 500, 1000, 5000];
+        let _stepIdx = 0;
+        const _updateTargetDisplay = () => {
+            this._targetValText.setText(this.editorTargetMoney.toLocaleString() + '$');
+        };
+
+        const minusHit = this.add.rectangle(tBtnX + 12, tY + 14, 24, 28, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        this.add.bitmapText(tBtnX + 12, tY + 14, GF, '−', 18).setOrigin(0.5).setDepth(4).setTint(0xffcc44);
+        minusHit.on('pointerdown', () => {
+            this.editorTargetMoney = Math.max(100, this.editorTargetMoney - steps[_stepIdx]);
+            _updateTargetDisplay();
+        });
+
+        const plusHit = this.add.rectangle(tBtnX + tBtnW - 12, tY + 14, 24, 28, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        this.add.bitmapText(tBtnX + tBtnW - 12, tY + 14, GF, '+', 18).setOrigin(0.5).setDepth(4).setTint(0xffcc44);
+        plusHit.on('pointerdown', () => {
+            this.editorTargetMoney = this.editorTargetMoney + steps[_stepIdx];
+            _updateTargetDisplay();
+        });
+
+        tY += 32;
+        // Step selector (шаг изменения)
+        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, 'шаг:', 10).setOrigin(0.5, 0).setDepth(2).setTint(0x888888);
+        tY += 13;
+        const stepBtnW = Math.floor((tBtnW - 3 * 4) / 4);
+        this._stepBtns = [];
+        steps.forEach((s, si) => {
+            const bx = tBtnX + si * (stepBtnW + 4);
+            const sg = this.add.graphics().setDepth(2);
+            const drawSB = (sel) => {
+                sg.clear();
+                sg.fillStyle(sel ? 0x2a2000 : 0x0d0900, 1);
+                sg.fillRect(bx, tY, stepBtnW, 20);
+                sg.lineStyle(1.5, sel ? 0xffcc44 : 0x443300, 1);
+                sg.strokeRect(bx, tY, stepBtnW, 20);
+            };
+            drawSB(si === 0);
+            this.add.bitmapText(bx + stepBtnW / 2, tY + 10, GF, s >= 1000 ? (s / 1000) + 'k' : String(s), 11).setOrigin(0.5).setDepth(3).setTint(0xffcc44);
+            const sh = this.add.rectangle(bx + stepBtnW / 2, tY + 10, stepBtnW, 20, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+            this._stepBtns.push({ sg, drawSB });
+            sh.on('pointerdown', () => {
+                _stepIdx = si;
+                this._stepBtns.forEach((b, bi) => b.drawSB(bi === si));
+            });
+        });
+        tY += 28;
 
         // Light theme toggle
         const ltGfx = this.add.graphics().setDepth(2);
@@ -2826,17 +2891,14 @@ class EditorScene extends Phaser.Scene {
             }
         };
         drawLtToggle();
-        const ltLabel = this.add.text(tBtnX + 31, tY + 17, 'Светлая тема', {
-            fontFamily: "'Arial'", fontSize: '12px',
-            fill: this.lightTheme ? '#224499' : '#88aacc'
-        }).setOrigin(0, 0.5).setDepth(3);
+        const ltLabel = this.add.bitmapText(tBtnX + 31, tY + 17, GF, 'Светлая тема', 12).setOrigin(0, 0.5).setDepth(3).setTint(this.lightTheme ? 0x224499 : 0x88aacc);
         this._ltLabel = ltLabel;
         this._drawLtToggle = drawLtToggle;
         const ltHit = this.add.rectangle(tBtnX + tBtnW / 2, tY + 17, tBtnW, 34, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
         ltHit.on('pointerdown', () => {
             this.lightTheme = !this.lightTheme;
             drawLtToggle();
-            ltLabel.setStyle({ fill: this.lightTheme ? '#224499' : '#88aacc' });
+            ltLabel.setTint(this.lightTheme ? 0x224499 : 0x88aacc);
             this._drawEditorBg();
             this._drawCells();
         });
@@ -2857,7 +2919,7 @@ class EditorScene extends Phaser.Scene {
                 ag.strokeRoundedRect(tBtnX, ay - 20, tBtnW, 38, 8);
             };
             draw(false);
-            this.add.text(tBtnX + tBtnW / 2, ay, lbl, { fontFamily: "'Impact'", fontSize: '18px', fill: '#' + abColors[i].toString(16).padStart(6, '0'), stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(3);
+            this.add.bitmapText(tBtnX + tBtnW / 2, ay, GF, lbl, 18).setOrigin(0.5).setDepth(3).setTint(abColors[i]);
             const hit = this.add.rectangle(tBtnX + tBtnW / 2, ay, tBtnW, 38, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
             hit.on('pointerover', () => draw(true)); hit.on('pointerout', () => draw(false));
             hit.on('pointerdown', () => {
@@ -2872,7 +2934,7 @@ class EditorScene extends Phaser.Scene {
         const clrG = this.add.graphics().setDepth(2);
         const drawClr = (hov) => { clrG.clear(); clrG.fillStyle(hov ? 0x300a0a : 0x1a0606, 1); clrG.fillRoundedRect(tBtnX, 648, tBtnW, 34, 8); clrG.lineStyle(2, 0xff4444, hov ? 1 : 0.6); clrG.strokeRoundedRect(tBtnX, 648, tBtnW, 34, 8); };
         drawClr(false);
-        this.add.text(tBtnX + tBtnW / 2, 665, 'ОЧИСТИТЬ', { fontFamily: "'Impact'", fontSize: '15px', fill: '#ff4444', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(3);
+        this.add.bitmapText(tBtnX + tBtnW / 2, 665, GF, 'ОЧИСТИТЬ', 15).setOrigin(0.5).setDepth(3).setTint(0xff4444);
         const clrHit = this.add.rectangle(tBtnX + tBtnW / 2, 665, tBtnW, 34, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
         clrHit.on('pointerover', () => drawClr(true)); clrHit.on('pointerout', () => drawClr(false));
         clrHit.on('pointerdown', () => { this.cells = Array.from({ length: ROWS }, () => Array(COLS).fill(null)); this._drawCells(); });
@@ -2927,23 +2989,23 @@ class EditorScene extends Phaser.Scene {
                 } else if (cell.type === 'zone') {
                     g.fillStyle(0x00ddaa, 0.3); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     g.lineStyle(2, 0x00ffcc, 0.9); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
-                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2, '◆', { fontSize: '13px', fill: '#00ffcc', stroke: '#003322', strokeThickness: 2 }).setOrigin(0.5).setDepth(3));
+                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D / 2, this._gf, '◆', 13).setOrigin(0.5).setDepth(3).setTint(0x00ffcc));
                 } else if (cell.type === 'trap') {
                     g.fillStyle(0x440000, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     g.lineStyle(2, 0xff3333, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     const _dmgStr = `-${cell.damage || 5}$`;
-                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2 - 7, '💀', { fontSize: '11px' }).setOrigin(0.5).setDepth(3));
-                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2 + 6, _dmgStr, { fontFamily: "'Impact'", fontSize: '10px', fill: '#ff8888', stroke: '#220000', strokeThickness: 2 }).setOrigin(0.5).setDepth(3));
+                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D / 2 - 7, this._gf, '×', 11).setOrigin(0.5).setDepth(3).setTint(0xff4444));
+                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D / 2 + 6, this._gf, _dmgStr, 10).setOrigin(0.5).setDepth(3).setTint(0xff8888));
                 } else if (cell.type === 'slow') {
                     g.fillStyle(0x001040, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     g.lineStyle(2, 0x3366ff, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
-                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2, '❄', { fontSize: '13px' }).setOrigin(0.5).setDepth(3));
+                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D / 2, this._gf, '❄', 13).setOrigin(0.5).setDepth(3).setTint(0x88aaff));
                 } else if (cell.type === 'income') {
                     const iv = cell.incomeValue || 1;
                     g.fillStyle(0x002200, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     g.lineStyle(2, 0x44ff88, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     g.fillStyle(0x44ff88, 0.12); g.fillRect(x + 1, y + 1, this.D - 2, Math.floor((this.D - 2) * 0.35));
-                    this._iconObjs.push(this.add.text(x + this.D / 2, y + this.D / 2, `+${iv}$`, { fontFamily: "'Impact'", fontSize: '12px', fill: '#44ff88', stroke: '#002200', strokeThickness: 3 }).setOrigin(0.5).setDepth(3));
+                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D / 2, this._gf, `+${iv}$`, 12).setOrigin(0.5).setDepth(3).setTint(0x44ff88));
                 }
             }
         }
@@ -2965,8 +3027,8 @@ class EditorScene extends Phaser.Scene {
                     if (_sc.incomeValue !== undefined) _se.incomeValue = _sc.incomeValue;
                     walls.push(_se);
                 }
-        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls, lightTheme: this.lightTheme })); } catch (e) { }
-        const txt = this.add.text(this.GSX + (this.COLS * this.D) / 2, this.GSY + (this.ROWS * this.D) / 2, 'СОХРАНЕНО!', { fontFamily: "'Impact'", fontSize: '38px', fill: '#44ff88', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(10);
+        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney })); } catch (e) { }
+        const txt = this.add.bitmapText(this.GSX + (this.COLS * this.D) / 2, this.GSY + (this.ROWS * this.D) / 2, this._gf, 'СОХРАНЕНО!', 38).setOrigin(0.5).setDepth(10).setTint(0x44ff88);
         this.tweens.add({ targets: txt, alpha: 0, y: txt.y - 40, duration: 1200, ease: 'Power2', onComplete: () => txt.destroy() });
     }
 
@@ -2977,8 +3039,12 @@ class EditorScene extends Phaser.Scene {
             const parsed = JSON.parse(raw);
             const walls = Array.isArray(parsed) ? parsed : (parsed.walls || []);
             this.lightTheme = !Array.isArray(parsed) && !!(parsed.lightTheme);
+            if (!Array.isArray(parsed) && parsed.targetMoney) {
+                this.editorTargetMoney = parsed.targetMoney;
+                if (this._targetValText) this._targetValText.setText(parsed.targetMoney.toLocaleString() + '$');
+            }
             if (this._drawLtToggle) this._drawLtToggle();
-            if (this._ltLabel) this._ltLabel.setStyle({ fill: this.lightTheme ? '#224499' : '#88aacc' });
+            if (this._ltLabel) this._ltLabel.setTint(this.lightTheme ? 0x224499 : 0x88aacc);
             walls.forEach(w => {
                 if (w.row < this.ROWS && w.col < this.COLS) {
                     const _lc = { type: w.type };
@@ -3006,7 +3072,7 @@ class EditorScene extends Phaser.Scene {
                     if (_tc.incomeValue !== undefined) _te.incomeValue = _tc.incomeValue;
                     snap.push(_te);
                 }
-        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls: snap, lightTheme: this.lightTheme })); } catch (e) { }
+        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls: snap, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney })); } catch (e) { }
 
         const customWalls = [];
         const D = this.D;
@@ -3016,17 +3082,18 @@ class EditorScene extends Phaser.Scene {
                     const _tc = this.cells[r][c];
                     customWalls.push({ x: this.GSX + c * D + D / 2, y: this.GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null, incomeValue: _tc.incomeValue || null });
                 }
-        this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum, lightTheme: this.lightTheme });
+        this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney });
     }
 }
 
 class LevelSelectScene extends Phaser.Scene {
     constructor() { super('LevelSelectScene'); }
-
+    preload() { _preloadGameFont(this); }
     create() {
         this._seedDefaultLevels();
         const W = 760, H = 870;
         const ch = (n) => '#' + n.toString(16).padStart(6, '0');
+        const GF = _initGameFont(this);
 
         this.add.rectangle(W / 2, H / 2, W, H, 0x0b1520);
         const dotGfx = this.add.graphics();
@@ -3035,10 +3102,7 @@ class LevelSelectScene extends Phaser.Scene {
             for (let gy = 20; gy < H; gy += 40)
                 dotGfx.fillCircle(gx, gy, 1.5);
 
-        this.add.text(W / 2, 52, 'УРОВНИ', {
-            fontFamily: "'Impact', 'Arial Black', sans-serif",
-            fontSize: '52px', fill: '#ffcc44', stroke: '#010e05', strokeThickness: 9
-        }).setOrigin(0.5);
+        this.add.bitmapText(W / 2, 52, GF, 'УРОВНИ', 52).setOrigin(0.5).setTint(0xffcc44);
 
         // Back button (top-left)
         const backGfx = this.add.graphics();
@@ -3050,7 +3114,7 @@ class LevelSelectScene extends Phaser.Scene {
             backGfx.strokeRoundedRect(18, 18, 110, 38, 8);
         };
         drawBack(false);
-        this.add.text(73, 37, '← НАЗАД', { fontFamily: "'Impact'", fontSize: '16px', fill: '#aaaacc', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5);
+        this.add.bitmapText(73, 37, GF, '← НАЗАД', 16).setOrigin(0.5).setTint(0xaaaacc);
         const backHit = this.add.rectangle(73, 37, 110, 38, 0, 0).setInteractive({ useHandCursor: true });
         backHit.on('pointerover', () => drawBack(true));
         backHit.on('pointerout', () => drawBack(false));
@@ -3085,11 +3149,8 @@ class LevelSelectScene extends Phaser.Scene {
                 gfx.strokeRoundedRect(bx - BW / 2, by - BH / 2, BW, BH, 7);
             };
             draw(false);
-            this.add.text(bx, by - (hasSave ? 8 : 0), `${lvl}`, {
-                fontFamily: "'Impact'", fontSize: '20px',
-                fill: hasSave ? '#44ff88' : '#8899aa', stroke: '#000', strokeThickness: 2
-            }).setOrigin(0.5);
-            if (hasSave) this.add.text(bx, by + 14, '✓', { fontFamily: "'Arial'", fontSize: '13px', fill: '#44ff88' }).setOrigin(0.5);
+            this.add.bitmapText(bx, by - (hasSave ? 8 : 0), GF, `${lvl}`, 20).setOrigin(0.5).setTint(hasSave ? 0x44ff88 : 0x8899aa);
+            if (hasSave) this.add.bitmapText(bx, by + 14, GF, '✓', 13).setOrigin(0.5).setTint(0x44ff88);
 
             this._btnDraw.push({ lvl, draw });
 
@@ -3105,9 +3166,7 @@ class LevelSelectScene extends Phaser.Scene {
         hintGfx.fillRoundedRect(W / 2 - 260, panY, 520, 55, 12);
         hintGfx.lineStyle(1.5, 0x445566, 0.5);
         hintGfx.strokeRoundedRect(W / 2 - 260, panY, 520, 55, 12);
-        this._hintTxt = this.add.text(W / 2, panY + 28, 'Выберите уровень', {
-            fontFamily: "'Impact'", fontSize: '22px', fill: '#556677'
-        }).setOrigin(0.5);
+        this._hintTxt = this.add.bitmapText(W / 2, panY + 28, GF, 'Выберите уровень', 22).setOrigin(0.5).setTint(0x556677);
 
         // Action buttons (hidden until level selected)
         const actY = panY + 90;
@@ -3125,15 +3184,13 @@ class LevelSelectScene extends Phaser.Scene {
             playGfx.strokeRoundedRect(playX, actY, BW2, BH2, 12);
         };
         drawPlay(false);
-        const playTxt = this.add.text(playX + BW2 / 2, actY + BH2 / 2, '▶  ИГРАТЬ', {
-            fontFamily: "'Impact'", fontSize: '26px', fill: '#44aaff', stroke: '#000', strokeThickness: 4
-        }).setOrigin(0.5);
+        const playTxt = this.add.bitmapText(playX + BW2 / 2, actY + BH2 / 2, GF, '▶  ИГРАТЬ', 26).setOrigin(0.5).setTint(0x44aaff);
         const playHit = this.add.rectangle(playX + BW2 / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
         playHit.on('pointerover', () => drawPlay(true));
         playHit.on('pointerout', () => drawPlay(false));
         playHit.on('pointerdown', () => {
             if (!this._selectedLevel) return;
-            let customWalls = [], lightTheme = false;
+            let customWalls = [], lightTheme = false, targetMoney = null;
             try {
                 const raw = localStorage.getItem(`bumper_level_${this._selectedLevel}`);
                 if (raw) {
@@ -3141,12 +3198,13 @@ class LevelSelectScene extends Phaser.Scene {
                     const parsed = JSON.parse(raw);
                     const walls = Array.isArray(parsed) ? parsed : (parsed.walls || []);
                     lightTheme = !Array.isArray(parsed) && !!(parsed.lightTheme);
+                    if (!Array.isArray(parsed) && parsed.targetMoney) targetMoney = parsed.targetMoney;
                     walls.forEach(w => {
                         customWalls.push({ x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null });
                     });
                 }
             } catch (e) { }
-            this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this._selectedLevel, lightTheme });
+            this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this._selectedLevel, lightTheme, targetMoney });
         });
 
         // РЕДАКТИРОВАТЬ button (right)
@@ -3159,9 +3217,7 @@ class LevelSelectScene extends Phaser.Scene {
             editGfx.strokeRoundedRect(editX, actY, BW2, BH2, 12);
         };
         drawEdit(false);
-        const editTxt = this.add.text(editX + BW2 / 2, actY + BH2 / 2, '✏  РЕДАКТИРОВАТЬ', {
-            fontFamily: "'Impact'", fontSize: '20px', fill: '#44ff88', stroke: '#000', strokeThickness: 4
-        }).setOrigin(0.5);
+        const editTxt = this.add.bitmapText(editX + BW2 / 2, actY + BH2 / 2, GF, '✏  РЕДАКТИРОВАТЬ', 20).setOrigin(0.5).setTint(0x44ff88);
         const editHit = this.add.rectangle(editX + BW2 / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
         editHit.on('pointerover', () => drawEdit(true));
         editHit.on('pointerout', () => drawEdit(false));
@@ -3177,64 +3233,64 @@ class LevelSelectScene extends Phaser.Scene {
 
     _seedDefaultLevels() {
         const b = (col, row, color) => ({ col, row, type: 'boundary', color: color || 0x3366cc });
-        const s = (col, row)        => ({ col, row, type: 'slow' });
-        const t = (col, row, dmg)   => ({ col, row, type: 'trap', damage: dmg || 2 });
-        const z = (col, row)        => ({ col, row, type: 'zone' });
+        const s = (col, row) => ({ col, row, type: 'slow' });
+        const t = (col, row, dmg) => ({ col, row, type: 'trap', damage: dmg || 2 });
+        const z = (col, row) => ({ col, row, type: 'zone' });
 
         const levels = [
             // ── Уровень 1 – «Уголки» ──────────────────────────────────
             // Четыре L-образных бампера по углам, две зоны дохода в центре
             [
-                b(2,1), b(3,1), b(2,2),
-                b(6,1), b(7,1), b(7,2),
-                b(2,7), b(2,8), b(3,8),
-                b(7,7), b(6,8), b(7,8),
-                z(4,4), z(5,5),
+                b(2, 1), b(3, 1), b(2, 2),
+                b(6, 1), b(7, 1), b(7, 2),
+                b(2, 7), b(2, 8), b(3, 8),
+                b(7, 7), b(6, 8), b(7, 8),
+                z(4, 4), z(5, 5),
             ],
             // ── Уровень 2 – «Каналы» ──────────────────────────────────
             // Два горизонтальных барьера сверху и снизу, зоны по бокам, один замедлитель
             [
-                b(0,2,0x44bb44), b(1,2,0x44bb44), b(2,2,0x44bb44),
-                b(7,2,0x44bb44), b(8,2,0x44bb44), b(9,2,0x44bb44),
-                b(0,7,0x44bb44), b(1,7,0x44bb44), b(2,7,0x44bb44),
-                b(7,7,0x44bb44), b(8,7,0x44bb44), b(9,7,0x44bb44),
-                z(0,4), z(9,4), z(0,5), z(9,5),
-                s(4,4),
+                b(0, 2, 0x44bb44), b(1, 2, 0x44bb44), b(2, 2, 0x44bb44),
+                b(7, 2, 0x44bb44), b(8, 2, 0x44bb44), b(9, 2, 0x44bb44),
+                b(0, 7, 0x44bb44), b(1, 7, 0x44bb44), b(2, 7, 0x44bb44),
+                b(7, 7, 0x44bb44), b(8, 7, 0x44bb44), b(9, 7, 0x44bb44),
+                z(0, 4), z(9, 4), z(0, 5), z(9, 5),
+                s(4, 4),
             ],
             // ── Уровень 3 – «Крест» ───────────────────────────────────
             // Крест из блоков делит поле на четыре секции, зоны по углам, ловушки + лёд в центре
             [
-                b(4,1,0xaa4444), b(5,1,0xaa4444), b(4,2,0xaa4444), b(5,2,0xaa4444),
-                b(1,4,0xaa4444), b(2,4,0xaa4444), b(7,4,0xaa4444), b(8,4,0xaa4444),
-                b(1,5,0xaa4444), b(2,5,0xaa4444), b(7,5,0xaa4444), b(8,5,0xaa4444),
-                b(4,7,0xaa4444), b(5,7,0xaa4444), b(4,8,0xaa4444), b(5,8,0xaa4444),
-                z(1,1), z(8,1), z(1,8), z(8,8),
-                t(4,4,2), t(5,5,2),
-                s(4,5),
+                b(4, 1, 0xaa4444), b(5, 1, 0xaa4444), b(4, 2, 0xaa4444), b(5, 2, 0xaa4444),
+                b(1, 4, 0xaa4444), b(2, 4, 0xaa4444), b(7, 4, 0xaa4444), b(8, 4, 0xaa4444),
+                b(1, 5, 0xaa4444), b(2, 5, 0xaa4444), b(7, 5, 0xaa4444), b(8, 5, 0xaa4444),
+                b(4, 7, 0xaa4444), b(5, 7, 0xaa4444), b(4, 8, 0xaa4444), b(5, 8, 0xaa4444),
+                z(1, 1), z(8, 1), z(1, 8), z(8, 8),
+                t(4, 4, 2), t(5, 5, 2),
+                s(4, 5),
             ],
             // ── Уровень 4 – «Лабиринт» ───────────────────────────────
             // П-образная стена слева, зеркальная справа, ловушки и замедлители в проходах
             [
-                b(1,1,0x9944cc), b(2,1,0x9944cc), b(3,1,0x9944cc),
-                b(3,2,0x9944cc),
-                b(3,3,0x9944cc), b(4,3,0x9944cc), b(5,3,0x9944cc),
-                b(3,6,0x9944cc), b(4,6,0x9944cc), b(5,6,0x9944cc),
-                b(3,7,0x9944cc),
-                b(3,8,0x9944cc), b(4,8,0x9944cc), b(5,8,0x9944cc),
-                z(6,2), z(0,4), z(0,9), z(9,9),
-                s(1,5), s(7,5),
-                t(8,4,4), t(6,9,4),
+                b(1, 1, 0x9944cc), b(2, 1, 0x9944cc), b(3, 1, 0x9944cc),
+                b(3, 2, 0x9944cc),
+                b(3, 3, 0x9944cc), b(4, 3, 0x9944cc), b(5, 3, 0x9944cc),
+                b(3, 6, 0x9944cc), b(4, 6, 0x9944cc), b(5, 6, 0x9944cc),
+                b(3, 7, 0x9944cc),
+                b(3, 8, 0x9944cc), b(4, 8, 0x9944cc), b(5, 8, 0x9944cc),
+                z(6, 2), z(0, 4), z(0, 9), z(9, 9),
+                s(1, 5), s(7, 5),
+                t(8, 4, 4), t(6, 9, 4),
             ],
             // ── Уровень 5 – «Арена» ──────────────────────────────────
             // Арена с рамкой из бамперов, ловушки в 4 квадрантах, лёд в центре, зоны в углах
             [
-                b(1,1,0xcc8833), b(4,1,0xcc8833), b(5,1,0xcc8833), b(8,1,0xcc8833),
-                b(1,2,0xcc8833), b(8,2,0xcc8833),
-                b(1,7,0xcc8833), b(8,7,0xcc8833),
-                b(1,8,0xcc8833), b(4,8,0xcc8833), b(5,8,0xcc8833), b(8,8,0xcc8833),
-                s(4,4), s(5,4), s(5,5),
-                t(3,3,4), t(6,3,4), t(3,6,5), t(6,6,5),
-                z(0,5), z(9,5), z(0,9), z(9,9),
+                b(1, 1, 0xcc8833), b(4, 1, 0xcc8833), b(5, 1, 0xcc8833), b(8, 1, 0xcc8833),
+                b(1, 2, 0xcc8833), b(8, 2, 0xcc8833),
+                b(1, 7, 0xcc8833), b(8, 7, 0xcc8833),
+                b(1, 8, 0xcc8833), b(4, 8, 0xcc8833), b(5, 8, 0xcc8833), b(8, 8, 0xcc8833),
+                s(4, 4), s(5, 4), s(5, 5),
+                t(3, 3, 4), t(6, 3, 4), t(3, 6, 5), t(6, 6, 5),
+                z(0, 5), z(9, 5), z(0, 9), z(9, 9),
             ],
         ];
 
@@ -3247,7 +3303,7 @@ class LevelSelectScene extends Phaser.Scene {
     _selectLevel(lvl) {
         this._btnDraw.forEach(b => b.draw(b.lvl === lvl));
         this._selectedLevel = lvl;
-        this._hintTxt.setText(`УРОВЕНЬ  ${lvl}`).setStyle({ fill: '#ffcc44' });
+        this._hintTxt.setText(`УРОВЕНЬ  ${lvl}`).setTint(0xffcc44);
         this._actionObjs.forEach(o => o.setVisible(true));
         this._drawPlay(false);
         this._drawEdit(false);
@@ -3270,11 +3326,48 @@ const config = {
         powerPreference: 'high-performance',
         roundPixels: true,
     },
-    fps: _isMobile ? { target: 30, forceSetTimeOut: false, smoothStep: true } : { target: 60 },
+    
     input: {
         activePointers: 3,
     },
     scene: [StartScene, MainScene, EditorScene, LevelSelectScene],
     physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: 0 } },
 };
-new Phaser.Game(config);
+// Worker-driven requestAnimationFrame: the Web Worker runs in a separate OS thread
+// that is never subject to main-thread idle throttling. It sends ticks via MessageChannel
+// (zero extra delay) so Phaser's game loop fires at true 60fps regardless of user input.
+// Must run BEFORE new Phaser.Game() so Phaser picks up the override.
+(function _workerRaf() {
+    if (!_isMobile) return; // desktop uses native rAF at full monitor refresh rate
+    let _w;
+    try {
+        _w = new Worker(URL.createObjectURL(
+            new Blob(['function f(){postMessage(null);setTimeout(f,14);}f();'], { type: 'text/javascript' })
+        ));
+    } catch (e) { return; }
+
+    const _ch = new MessageChannel();
+    const _cbs = [];
+    let _busy = false;
+
+    _ch.port2.onmessage = () => {
+        _busy = false;
+        const t = performance.now();
+        _cbs.splice(0).forEach(cb => { try { cb(t); } catch (e) { } });
+    };
+    _w.onmessage = () => {
+        if (!_busy && _cbs.length) { _busy = true; _ch.port1.postMessage(null); }
+    };
+
+    let _nextId = 0;
+    const _live = new Set();
+    window.requestAnimationFrame = cb => {
+        const id = ++_nextId;
+        _live.add(id);
+        _cbs.push(t => { if (_live.delete(id)) cb(t); });
+        return id;
+    };
+    window.cancelAnimationFrame = id => _live.delete(id);
+})();
+
+function _startPhaserGame() { new Phaser.Game(config); }
