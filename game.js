@@ -175,10 +175,10 @@ class MainScene extends Phaser.Scene {
         if (this.lightTheme) {
             for (let r = 0; r < 14; r++)
                 for (let c = 0; c < 14; c++) {
-                    _bgGfx.fillStyle((r + c) % 2 === 0 ? 0xb8cce0 : 0xdceaf8, 1);
+                    _bgGfx.fillStyle((r + c) % 2 === 0 ? 0xf0e6c8 : 0xddd0a8, 1);
                     _bgGfx.fillRect(this.fieldOffsetX + c * _cs, this.fieldOffsetY + r * _cs, _cs, _cs);
                 }
-            _bgGfx.lineStyle(4, 0x2255cc, 1);
+            _bgGfx.lineStyle(4, 0x8b6a3a, 1);
             _bgGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         } else {
             for (let r = 0; r < 14; r++)
@@ -190,7 +190,7 @@ class MainScene extends Phaser.Scene {
             _bgGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         }
         const _gx = this.fieldOffsetX, _gy = this.fieldOffsetY, _gs = this.fieldSize;
-        const _glowColor = this.lightTheme ? 0x2255cc : 0x9966ff;
+        const _glowColor = this.lightTheme ? 0xc8962a : 0x9966ff;
         const _glowN = 30;
         for (let _i = 0; _i < _glowN; _i++) {
             const _spread = (_glowN - _i) * 1.7;
@@ -204,8 +204,8 @@ class MainScene extends Phaser.Scene {
         _bgGfx.destroy();
 
         if (this.lightTheme) {
-            this.cameras.main.setBackgroundColor('#f5e8a8');
-            document.body.style.background = '#f5e8a8';
+            this.cameras.main.setBackgroundColor('#e8dbb8');
+            document.body.style.background = '#e8dbb8';
         }
         this.events.once('shutdown', () => {
             document.body.style.transition = '';
@@ -486,11 +486,12 @@ class MainScene extends Phaser.Scene {
         // ball.trail = this.add.particles(0, 0, 'particle', {
         //     lifespan: 380,
         //     scale: { start: 0.8, end: 0 },
-        //     alpha: { start: 0.04, end: 0 },
-        //     tint: 0xffccff,
+        //     alpha: { start: 0.6, end: 0 },
+        //     // tint: 0xffccff,
         //     // blendMode: 1,
         //     frequency: -1
         // }).setDepth(1);
+        ball.on('destroy', () => { if (ball.trail && ball.trail.active) ball.trail.destroy(); });
         // ─────────────────────────────────────────────────────────
         const angle = Phaser.Math.DegToRad(Phaser.Math.Between(25, 65));
         const sx = Phaser.Math.RND.pick([-1, 1]), sy = Phaser.Math.RND.pick([-1, 1]);
@@ -644,9 +645,9 @@ class MainScene extends Phaser.Scene {
             for (let gy = 16; gy < 130; gy += 26)
                 panelGfx.fillCircle(gx, gy, 1.5);
         // ── Right: wallet background panel ──
-        panelGfx.fillStyle(0x070e16, 1);
+        panelGfx.fillStyle(this.lightTheme ? 0xf5ead0 : 0x070e16, 1);
         panelGfx.fillRoundedRect(415, 16, 330, 36, 6);
-        panelGfx.lineStyle(1, 0x1e3d6a, 0.7);
+        panelGfx.lineStyle(2.5, this.lightTheme ? 0x6b4010 : 0x1e3d6a, this.lightTheme ? 1 : 0.7);
         panelGfx.strokeRoundedRect(415, 16, 330, 36, 6);
         // ball icon
         panelGfx.fillStyle(0xf01cff, 1);
@@ -666,11 +667,11 @@ class MainScene extends Phaser.Scene {
             this._pbx + this._pbw / 2,
             this._pby + this._pbh / 2,
             this._gf, '0 / 2,000,000', 36
-        ).setOrigin(0.5, 0.5).setDepth(5).setTint(0x18ee50);
+        ).setOrigin(0.5, 0.5).setDepth(5).setTint(this.lightTheme ? 0xaa7730 : 0x18ee50);
         const _lvl = this.registry.get('level') || 1;
         const _barLabel = this.infiniteMode ? '∞  БЕСКОНЕЧНЫЙ РЕЖИМ' : `ЦЕЛЬ УРОВНЯ ${_lvl}`;
         this.add.bitmapText(this._pbx + this._pbw / 2, this._pby + this._pbh + 5, this._gf, _barLabel, 22
-        ).setOrigin(0.5, 0).setTint(this.infiniteMode ? 0x44aaff : 0xffffff);
+        ).setOrigin(0.5, 0).setTint(this.infiniteMode ? 0x44aaff : (this.lightTheme ? 0xc89050 : 0xffffff));
 
         // ── Vertical divider ──────────────────────────────────────
         // const divGfx = this.add.graphics();
@@ -678,8 +679,8 @@ class MainScene extends Phaser.Scene {
         // divGfx.lineBetween(406, 6, 406, 122);
 
         // money number centered in the panel
-        this.moneyText = this.add.bitmapText(580, 34, this._gf, '0$', 36).setOrigin(0.5, 0.5).setDepth(5).setTint(0x18ee50);
-        this.add.bitmapText(580, 58, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(0xffffff);
+        this.moneyText = this.add.bitmapText(580, 34, this._gf, '0$', 36).setOrigin(0.5, 0.5).setDepth(5).setTint(this.lightTheme ? 0xaa7730 : 0x18ee50);
+        this.add.bitmapText(580, 58, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(this.lightTheme ? 0xc89050 : 0xffffff);
 
         // mute button (right side, vertically centered in panel)
         this.ballCountText = this.add.bitmapText(_valX, 116, this._gf, '1 шар', 16).setOrigin(0, 0).setDepth(5).setTint(0xcce4ff);
@@ -888,19 +889,20 @@ class MainScene extends Phaser.Scene {
                 const bw = this.BALL_R * 2, bh = this.BALL_R * 2;
                 const x0 = slot.cx - bw / 2, y0 = slot.cy - bh / 2;
                 // outer glow halo gradient
+                const _slotGlow = this.lightTheme ? 0x9966cc : 0x3322aa;
                 [10, 8, 7, 6, 5, 4, 3, 2, 1].forEach(b => {
-                    slot.gfx.fillStyle(0x3322aa, (10 - b) * 0.006);
+                    slot.gfx.fillStyle(_slotGlow, (10 - b) * 0.006);
                     slot.gfx.fillRect(x0 - b, y0 - b, bw + b * 2, bh + b * 2);
                 });
                 // ghost fill
-                slot.gfx.fillStyle(0x0c0e22, 0.5);
+                slot.gfx.fillStyle(this.lightTheme ? 0xe8d8f8 : 0x0c0e22, this.lightTheme ? 0.7 : 0.5);
                 slot.gfx.fillRect(x0, y0, bw, bh);
                 // inner cross lines
-                slot.gfx.lineStyle(0.5, 0x4433bb, 0.22);
+                slot.gfx.lineStyle(0.5, this.lightTheme ? 0xaa88dd : 0x4433bb, 0.35);
                 slot.gfx.lineBetween(x0 + bw / 2, y0 + 2, x0 + bw / 2, y0 + bh - 2);
                 slot.gfx.lineBetween(x0 + 2, y0 + bh / 2, x0 + bw - 2, y0 + bh / 2);
                 // outer border
-                slot.gfx.lineStyle(1, 0x4433bb, 0.45);
+                slot.gfx.lineStyle(1.5, this.lightTheme ? 0x9966cc : 0x4433bb, this.lightTheme ? 0.7 : 0.45);
                 slot.gfx.strokeRect(x0, y0, bw, bh);
             }
         });
@@ -908,17 +910,26 @@ class MainScene extends Phaser.Scene {
 
     _drawSlotWall(gfx, x0, y0, w, h, skipOutline = false, incomeValue = null) {
         const iv = incomeValue !== null ? incomeValue : 5;
-        const colors = this._incomeToColors(iv);
-        const fillTop = this._darkenColor(colors.top, 0.32);
-        const fillBot = this._darkenColor(colors.bot, 0.45);
+        let fillTop, fillBot, outlineColor;
+        if (this.lightTheme) {
+            const t = Math.min(1, (iv - 1) / 99);
+            fillTop = this._lerpColor(0xc8b0e8, 0x9966cc, t);
+            fillBot = this._lerpColor(0xa890cc, 0x7744aa, t);
+            outlineColor = fillTop;
+        } else {
+            const colors = this._incomeToColors(iv);
+            fillTop = this._darkenColor(colors.top, 0.32);
+            fillBot = this._darkenColor(colors.bot, 0.45);
+            outlineColor = colors.top;
+        }
         gfx.fillGradientStyle(fillTop, fillTop, fillBot, fillBot, 1);
         gfx.fillRect(x0, y0, w, h);
-        gfx.fillStyle(0x000000, 0.25);
+        gfx.fillStyle(0x000000, 0.18);
         gfx.fillRect(x0, y0 + h - Math.max(3, h * 0.12), w, Math.max(3, h * 0.12));
-        gfx.fillStyle(0xffffff, 0.09);
+        gfx.fillStyle(0xffffff, 0.15);
         gfx.fillRect(x0, y0, w, Math.max(2, h * 0.08));
         if (!skipOutline) {
-            gfx.lineStyle(2, colors.top, 0.9);
+            gfx.lineStyle(2, outlineColor, 0.9);
             gfx.strokeRoundedRect(x0, y0, w, h, 5);
         }
     }
@@ -1195,9 +1206,9 @@ class MainScene extends Phaser.Scene {
     createButton(cx, cy, emoji, label, initCost, callback, sharedBg) {
         // block background — subtle dark panel for the whole column
         const blockBg = sharedBg || this.add.graphics();
-        blockBg.fillStyle(0x0d2818, 0.72);
+        blockBg.fillStyle(this.lightTheme ? 0xede0f8 : 0x0d2818, this.lightTheme ? 1 : 0.72);
         blockBg.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
-        blockBg.lineStyle(1, 0x1e5a38, 0.4);
+        blockBg.lineStyle(2, this.lightTheme ? 0x9966cc : 0x1e5a38, this.lightTheme ? 0.7 : 0.4);
         blockBg.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
 
         // transparent hit area (on top of blockBg)
@@ -1207,9 +1218,9 @@ class MainScene extends Phaser.Scene {
         // price panel
         const px = cx - 80, py = cy - 78, pw = 160, ph = 20;
         const pnlGfx = sharedBg || this.add.graphics();
-        pnlGfx.fillStyle(0x071609, 1);
+        pnlGfx.fillStyle(this.lightTheme ? 0xd8c0f0 : 0x071609, 1);
         pnlGfx.fillRoundedRect(px, py, pw, ph, 5);
-        pnlGfx.lineStyle(1, 0x1e6a3d, 0.7);
+        pnlGfx.lineStyle(1, this.lightTheme ? 0x7744aa : 0x1e6a3d, this.lightTheme ? 0.9 : 0.7);
         pnlGfx.strokeRoundedRect(px, py, pw, ph, 5);
 
         const ctTxt = this.add.bitmapText(cx, py + ph / 2, this._gf, `${initCost.toLocaleString()}$`, 23).setOrigin(0.5, 0.5).setTint(0xffdd88);
@@ -1243,9 +1254,9 @@ class MainScene extends Phaser.Scene {
         // description background
         const descY = cy + 57;
         const descBg = sharedBg || this.add.graphics();
-        descBg.fillStyle(0x0e2e16, 1);
+        descBg.fillStyle(this.lightTheme ? 0xd8c0f0 : 0x0e2e16, 1);
         descBg.fillRoundedRect(cx - 80, descY - 11, 160, 22, 5);
-        descBg.lineStyle(1, 0x2a7a4d, 0.7);
+        descBg.lineStyle(1, this.lightTheme ? 0x7744aa : 0x2a7a4d, this.lightTheme ? 0.9 : 0.7);
         descBg.strokeRoundedRect(cx - 80, descY - 11, 160, 22, 5);
 
         const lbTxt = this.add.bitmapText(cx, descY, this._gf, label, 21).setOrigin(0.5, 0.5).setTint(0xffffff);
@@ -2042,8 +2053,15 @@ class MainScene extends Phaser.Scene {
     }
 
     _setWallTint(wall, val) {
-        const { top, bot } = this._incomeToColors(val);
-        wall.setTint(top, top, bot, bot);
+        if (this.lightTheme) {
+            const t = Math.min(1, (val - 1) / 99);
+            const top = this._lerpColor(0xc8b0e8, 0x9966cc, t);
+            const bot = this._lerpColor(0xa890cc, 0x7744aa, t);
+            wall.setTint(top, top, bot, bot);
+        } else {
+            const { top, bot } = this._incomeToColors(val);
+            wall.setTint(top, top, bot, bot);
+        }
     }
 
     _refreshWallTexture(wall) {
@@ -2454,7 +2472,7 @@ class MainScene extends Phaser.Scene {
 
         const { _pbx: pbx, _pby: pby, _pbw: pbw, _pbh: pbh } = this;
         this._progressGfx.clear();
-        this._progressGfx.fillStyle(0x070e16, 1);
+        this._progressGfx.fillStyle(this.lightTheme ? 0xe8d8b0 : 0x070e16, 1);
         this._progressGfx.fillRoundedRect(pbx, pby, pbw, pbh, 6);
 
         if (this.infiniteMode) {
@@ -2476,7 +2494,7 @@ class MainScene extends Phaser.Scene {
                 this._progressGfx.fillStyle(fc, 1);
                 this._progressGfx.fillRoundedRect(pbx, pby, fw, pbh, 6);
             }
-            this._progressGfx.lineStyle(1, 0x1e3d6a, 0.7);
+            this._progressGfx.lineStyle(2.5, this.lightTheme ? 0x6b4010 : 0x1e3d6a, this.lightTheme ? 1 : 0.7);
             this._progressGfx.strokeRoundedRect(pbx, pby, pbw, pbh, 6);
             this.barText.setText(`${this.totalEarned.toLocaleString()}$ / ${this.targetMoney.toLocaleString()}$`);
             if (this.totalEarned >= this.targetMoney && !this.gameWon) this.winGame();
@@ -2630,7 +2648,7 @@ class EditorScene extends Phaser.Scene {
     create() {
         const W = 760, H = 870;
         const D = 36; // cell size (BALL_R*2 = 18*2)
-        const FOX = 184, FOY = 102, FS = 392;
+        const FOX = 96, FOY = 102, FS = 392;
         const COLS = Math.floor(FS / D), ROWS = Math.floor(FS / D); // 10
         const GSX = FOX + Math.floor((FS - COLS * D) / 2); // grid start x = 200
         const GSY = FOY + Math.floor((FS - ROWS * D) / 2); // grid start y = 118
@@ -2679,13 +2697,16 @@ class EditorScene extends Phaser.Scene {
         // Cell render graphics
         this._cellGfx = this.add.graphics().setDepth(2);
 
-        // Sidebar background
+        // Sidebar background — two columns
         const sideX = FOX + FS + 8;
-        this.add.rectangle(sideX + 74, H / 2, 148, H, 0x0e1a27).setDepth(1);
+        const colW = 122; // width of each column
+        const col2X = sideX + colW + 6; // second column start X
+        const sideW = colW * 2 + 6 + 8; // total sidebar width
+        this.add.rectangle(sideX + sideW / 2, H / 2, sideW, H, 0x0e1a27).setDepth(1);
 
         // Title
         const edTitle = this.levelNum ? `РЕД. УР. ${this.levelNum}` : 'РЕДАКТОР';
-        this.add.bitmapText(W / 2 - 60, FOY - 26, GF, edTitle, 28).setOrigin(0.5).setDepth(2).setTint(0xffcc44);
+        this.add.bitmapText(FOX + FS / 2, FOY - 26, GF, edTitle, 28).setOrigin(0.5).setDepth(2).setTint(0xffcc44);
 
         // Tool palette
         const tools = [
@@ -2696,7 +2717,8 @@ class EditorScene extends Phaser.Scene {
             { key: 'zone', label: 'ЗОНА', color: 0x00ddaa, desc: 'Пасс. доход' },
             { key: 'erase', label: 'СТЕРЕТЬ', color: 0x444444, desc: '' },
         ];
-        const tBtnW = 130, tBtnH = 44, tBtnX = sideX + 2;
+        const tBtnW = colW - 4, tBtnH = 44, tBtnX = sideX + 2;
+        const c2BtnW = colW - 4, c2X = col2X + 2;
         let tY = FOY + 16;
         this._toolBtns = {};
         tools.forEach(t => {
@@ -2718,7 +2740,7 @@ class EditorScene extends Phaser.Scene {
                 this.currentTool = t.key;
                 tools.forEach(tt => this._toolBtns[tt.key].draw(tt.key === t.key));
             });
-            tY += tBtnH + 6;
+            tY += tBtnH + 8;
         });
 
         // Color swatches for boundary wall
@@ -2784,100 +2806,102 @@ class EditorScene extends Phaser.Scene {
         this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, '× = -деньги\n❄ = замедление\n◆ = зона дохода', 11).setOrigin(0.5, 0).setDepth(2).setTint(0x888888).setCenterAlign();
         tY += 52;
 
+        // ── RIGHT COLUMN (col2) ──────────────────────────────────
+        let c2Y = FOY + 16;
+
         // Target money input
         this.editorTargetMoney = 2000;
-        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, 'ЦЕЛЬ УРОВНЯ ($)', 10).setOrigin(0.5, 0).setDepth(2).setTint(0xffcc44);
-        tY += 15;
+        this.add.bitmapText(c2X + c2BtnW / 2, c2Y, GF, 'ЦЕЛЬ ($)', 10).setOrigin(0.5, 0).setDepth(2).setTint(0xffcc44);
+        c2Y += 14;
 
         const targetGfx = this.add.graphics().setDepth(2);
         const drawTargetBox = (focused) => {
             targetGfx.clear();
             targetGfx.fillStyle(focused ? 0x1a1400 : 0x0d0a00, 1);
-            targetGfx.fillRoundedRect(tBtnX, tY, tBtnW, 28, 6);
+            targetGfx.fillRoundedRect(c2X, c2Y, c2BtnW, 28, 6);
             targetGfx.lineStyle(2, focused ? 0xffcc44 : 0x665500, 1);
-            targetGfx.strokeRoundedRect(tBtnX, tY, tBtnW, 28, 6);
+            targetGfx.strokeRoundedRect(c2X, c2Y, c2BtnW, 28, 6);
         };
         drawTargetBox(false);
-        this._targetValText = this.add.bitmapText(tBtnX + tBtnW / 2, tY + 14, GF, '2000$', 15).setOrigin(0.5).setDepth(3).setTint(0xffcc44);
+        this._targetValText = this.add.bitmapText(c2X + c2BtnW / 2, c2Y + 14, GF, '2000$', 15).setOrigin(0.5).setDepth(3).setTint(0xffcc44);
 
-        // minus / plus buttons
         const steps = [100, 500, 1000, 5000];
         let _stepIdx = 0;
         const _updateTargetDisplay = () => {
             this._targetValText.setText(this.editorTargetMoney.toLocaleString() + '$');
         };
 
-        const minusHit = this.add.rectangle(tBtnX + 12, tY + 14, 24, 28, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
-        this.add.bitmapText(tBtnX + 12, tY + 14, GF, '−', 18).setOrigin(0.5).setDepth(4).setTint(0xffcc44);
+        const minusHit = this.add.rectangle(c2X + 12, c2Y + 14, 24, 28, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        this.add.bitmapText(c2X + 12, c2Y + 14, GF, '−', 18).setOrigin(0.5).setDepth(4).setTint(0xffcc44);
         minusHit.on('pointerdown', () => {
             this.editorTargetMoney = Math.max(100, this.editorTargetMoney - steps[_stepIdx]);
             _updateTargetDisplay();
         });
 
-        const plusHit = this.add.rectangle(tBtnX + tBtnW - 12, tY + 14, 24, 28, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
-        this.add.bitmapText(tBtnX + tBtnW - 12, tY + 14, GF, '+', 18).setOrigin(0.5).setDepth(4).setTint(0xffcc44);
+        const plusHit = this.add.rectangle(c2X + c2BtnW - 12, c2Y + 14, 24, 28, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        this.add.bitmapText(c2X + c2BtnW - 12, c2Y + 14, GF, '+', 18).setOrigin(0.5).setDepth(4).setTint(0xffcc44);
         plusHit.on('pointerdown', () => {
             this.editorTargetMoney = this.editorTargetMoney + steps[_stepIdx];
             _updateTargetDisplay();
         });
 
-        tY += 32;
-        // Step selector (шаг изменения)
-        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, 'шаг:', 10).setOrigin(0.5, 0).setDepth(2).setTint(0x888888);
-        tY += 13;
-        const stepBtnW = Math.floor((tBtnW - 3 * 4) / 4);
+        c2Y += 32;
+        this.add.bitmapText(c2X + c2BtnW / 2, c2Y, GF, 'шаг:', 10).setOrigin(0.5, 0).setDepth(2).setTint(0x888888);
+        c2Y += 13;
+        const stepBtnW = Math.floor((c2BtnW - 3 * 4) / 4);
         this._stepBtns = [];
         steps.forEach((s, si) => {
-            const bx = tBtnX + si * (stepBtnW + 4);
+            const bx = c2X + si * (stepBtnW + 4);
             const sg = this.add.graphics().setDepth(2);
             const drawSB = (sel) => {
                 sg.clear();
                 sg.fillStyle(sel ? 0x2a2000 : 0x0d0900, 1);
-                sg.fillRect(bx, tY, stepBtnW, 20);
+                sg.fillRect(bx, c2Y, stepBtnW, 20);
                 sg.lineStyle(1.5, sel ? 0xffcc44 : 0x443300, 1);
-                sg.strokeRect(bx, tY, stepBtnW, 20);
+                sg.strokeRect(bx, c2Y, stepBtnW, 20);
             };
             drawSB(si === 0);
-            this.add.bitmapText(bx + stepBtnW / 2, tY + 10, GF, s >= 1000 ? (s / 1000) + 'k' : String(s), 11).setOrigin(0.5).setDepth(3).setTint(0xffcc44);
-            const sh = this.add.rectangle(bx + stepBtnW / 2, tY + 10, stepBtnW, 20, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+            this.add.bitmapText(bx + stepBtnW / 2, c2Y + 10, GF, s >= 1000 ? (s / 1000) + 'k' : String(s), 11).setOrigin(0.5).setDepth(3).setTint(0xffcc44);
+            const sh = this.add.rectangle(bx + stepBtnW / 2, c2Y + 10, stepBtnW, 20, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
             this._stepBtns.push({ sg, drawSB });
             sh.on('pointerdown', () => {
                 _stepIdx = si;
                 this._stepBtns.forEach((b, bi) => b.drawSB(bi === si));
             });
         });
-        tY += 28;
+        c2Y += 28;
 
         // Light theme toggle
+        c2Y += 8;
+        const ltY = c2Y;
+        c2Y += 42;
         const ltGfx = this.add.graphics().setDepth(2);
         const drawLtToggle = () => {
             ltGfx.clear();
             if (this.lightTheme) {
                 ltGfx.fillStyle(0xdceaf8, 1);
-                ltGfx.fillRoundedRect(tBtnX, tY, tBtnW, 34, 8);
+                ltGfx.fillRoundedRect(c2X, ltY, c2BtnW, 34, 8);
                 ltGfx.lineStyle(2, 0x2255cc, 1);
-                ltGfx.strokeRoundedRect(tBtnX, tY, tBtnW, 34, 8);
-                // checked box
+                ltGfx.strokeRoundedRect(c2X, ltY, c2BtnW, 34, 8);
                 ltGfx.fillStyle(0x2255cc, 1);
-                ltGfx.fillRoundedRect(tBtnX + 8, tY + 9, 16, 16, 3);
+                ltGfx.fillRoundedRect(c2X + 8, ltY + 9, 16, 16, 3);
                 ltGfx.lineStyle(2.5, 0xffffff, 1);
-                ltGfx.lineBetween(tBtnX + 11, tY + 17, tBtnX + 14, tY + 21);
-                ltGfx.lineBetween(tBtnX + 14, tY + 21, tBtnX + 22, tY + 13);
+                ltGfx.lineBetween(c2X + 11, ltY + 17, c2X + 14, ltY + 21);
+                ltGfx.lineBetween(c2X + 14, ltY + 21, c2X + 22, ltY + 13);
             } else {
                 ltGfx.fillStyle(0x0e1a27, 1);
-                ltGfx.fillRoundedRect(tBtnX, tY, tBtnW, 34, 8);
+                ltGfx.fillRoundedRect(c2X, ltY, c2BtnW, 34, 8);
                 ltGfx.lineStyle(2, 0x335566, 0.7);
-                ltGfx.strokeRoundedRect(tBtnX, tY, tBtnW, 34, 8);
-                // unchecked box
+                ltGfx.strokeRoundedRect(c2X, ltY, c2BtnW, 34, 8);
                 ltGfx.lineStyle(1.5, 0x557799, 1);
-                ltGfx.strokeRoundedRect(tBtnX + 8, tY + 9, 16, 16, 3);
+                ltGfx.strokeRoundedRect(c2X + 8, ltY + 9, 16, 16, 3);
             }
         };
         drawLtToggle();
-        const ltLabel = this.add.bitmapText(tBtnX + 31, tY + 17, GF, 'Светлая тема', 12).setOrigin(0, 0.5).setDepth(3).setTint(this.lightTheme ? 0x224499 : 0x88aacc);
+        const ltLabel = this.add.bitmapText(c2X + 31, ltY + 17, GF, 'Светлая', 12).setOrigin(0, 0.5).setDepth(3).setTint(this.lightTheme ? 0x224499 : 0x88aacc);
         this._ltLabel = ltLabel;
         this._drawLtToggle = drawLtToggle;
-        const ltHit = this.add.rectangle(tBtnX + tBtnW / 2, tY + 17, tBtnW, 34, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        const ltHit = this.add.rectangle(c2X + c2BtnW / 2, ltY + 17, c2BtnW, 34, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
         ltHit.on('pointerdown', () => {
             this.lightTheme = !this.lightTheme;
             drawLtToggle();
@@ -2886,24 +2910,34 @@ class EditorScene extends Phaser.Scene {
             this._drawCells();
         });
 
-        // Action buttons (bottom)
-        const abY = [700, 760, 820];
+        // Clear button
+        const clrY = c2Y;
+        c2Y += 42;
+        const clrG = this.add.graphics().setDepth(2);
+        const drawClr = (hov) => { clrG.clear(); clrG.fillStyle(hov ? 0x300a0a : 0x1a0606, 1); clrG.fillRoundedRect(c2X, clrY, c2BtnW, 34, 8); clrG.lineStyle(2, 0xff4444, hov ? 1 : 0.6); clrG.strokeRoundedRect(c2X, clrY, c2BtnW, 34, 8); };
+        drawClr(false);
+        this.add.bitmapText(c2X + c2BtnW / 2, clrY + 17, GF, 'ОЧИСТИТЬ', 14).setOrigin(0.5).setDepth(3).setTint(0xff4444);
+        const clrHit = this.add.rectangle(c2X + c2BtnW / 2, clrY + 17, c2BtnW, 34, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+        clrHit.on('pointerover', () => drawClr(true)); clrHit.on('pointerout', () => drawClr(false));
+        clrHit.on('pointerdown', () => { this.cells = Array.from({ length: ROWS }, () => Array(COLS).fill(null)); this._drawCells(); });
+
+        // Action buttons — ТЕСТ / СОХРАНИТЬ / МЕНЮ
         const abLabels = ['ТЕСТ', 'СОХРАНИТЬ', 'МЕНЮ'];
         const abColors = [0x44ff88, 0xffcc44, 0xaaaaaa];
-        //  const abColors = [0xaa3a16, 0xffcc44, 0xaaaaaa];
         abLabels.forEach((lbl, i) => {
             const ag = this.add.graphics().setDepth(2);
-            const ay = abY[i];
+            const ay = c2Y;
+            c2Y += 46;
             const draw = (hov) => {
                 ag.clear();
                 ag.fillStyle(hov ? 0x223344 : 0x0d1824, 1);
-                ag.fillRoundedRect(tBtnX, ay - 20, tBtnW, 38, 8);
+                ag.fillRoundedRect(c2X, ay, c2BtnW, 38, 8);
                 ag.lineStyle(2, abColors[i], hov ? 1 : 0.7);
-                ag.strokeRoundedRect(tBtnX, ay - 20, tBtnW, 38, 8);
+                ag.strokeRoundedRect(c2X, ay, c2BtnW, 38, 8);
             };
             draw(false);
-            this.add.bitmapText(tBtnX + tBtnW / 2, ay, GF, lbl, 18).setOrigin(0.5).setDepth(3).setTint(abColors[i]);
-            const hit = this.add.rectangle(tBtnX + tBtnW / 2, ay, tBtnW, 38, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+            this.add.bitmapText(c2X + c2BtnW / 2, ay + 19, GF, lbl, 16).setOrigin(0.5).setDepth(3).setTint(abColors[i]);
+            const hit = this.add.rectangle(c2X + c2BtnW / 2, ay + 19, c2BtnW, 38, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
             hit.on('pointerover', () => draw(true)); hit.on('pointerout', () => draw(false));
             hit.on('pointerdown', () => {
                 if (i === 0) this._testLevel();
@@ -2912,15 +2946,6 @@ class EditorScene extends Phaser.Scene {
                 else this.scene.start('StartScene');
             });
         });
-
-        // Clear button
-        const clrG = this.add.graphics().setDepth(2);
-        const drawClr = (hov) => { clrG.clear(); clrG.fillStyle(hov ? 0x300a0a : 0x1a0606, 1); clrG.fillRoundedRect(tBtnX, 648, tBtnW, 34, 8); clrG.lineStyle(2, 0xff4444, hov ? 1 : 0.6); clrG.strokeRoundedRect(tBtnX, 648, tBtnW, 34, 8); };
-        drawClr(false);
-        this.add.bitmapText(tBtnX + tBtnW / 2, 665, GF, 'ОЧИСТИТЬ', 15).setOrigin(0.5).setDepth(3).setTint(0xff4444);
-        const clrHit = this.add.rectangle(tBtnX + tBtnW / 2, 665, tBtnW, 34, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
-        clrHit.on('pointerover', () => drawClr(true)); clrHit.on('pointerout', () => drawClr(false));
-        clrHit.on('pointerdown', () => { this.cells = Array.from({ length: ROWS }, () => Array(COLS).fill(null)); this._drawCells(); });
 
         // Load saved if exists
         this._loadLevel();
@@ -3059,11 +3084,15 @@ class EditorScene extends Phaser.Scene {
 
         const customWalls = [];
         const D = this.D;
+        // GameScene uses fieldOffsetX=184, fieldOffsetY=102 — compute coords from there
+        const GS_FOX = 184, GS_FOY = 102, GS_FS = 392;
+        const GS_GSX = GS_FOX + Math.floor((GS_FS - this.COLS * D) / 2);
+        const GS_GSY = GS_FOY + Math.floor((GS_FS - this.ROWS * D) / 2);
         for (let r = 0; r < this.ROWS; r++)
             for (let c = 0; c < this.COLS; c++)
                 if (this.cells[r][c]) {
                     const _tc = this.cells[r][c];
-                    customWalls.push({ x: this.GSX + c * D + D / 2, y: this.GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null, incomeValue: _tc.incomeValue || null });
+                    customWalls.push({ x: GS_GSX + c * D + D / 2, y: GS_GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null, incomeValue: _tc.incomeValue || null });
                 }
         this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney });
     }
