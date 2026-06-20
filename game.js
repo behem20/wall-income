@@ -190,12 +190,12 @@ class MainScene extends Phaser.Scene {
             _bgGfx.strokeRect(this.fieldOffsetX, this.fieldOffsetY, this.fieldSize, this.fieldSize);
         }
         const _gx = this.fieldOffsetX, _gy = this.fieldOffsetY, _gs = this.fieldSize;
-        const _glowColor = this.lightTheme ? 0xc8962a : 0x9966ff;
-        const _glowN = 30;
+        const _glowColor = this.lightTheme ? 0xaa3366 : 0x9966ff;
+        const _glowN = this.lightTheme ? 42 : 30;
         for (let _i = 0; _i < _glowN; _i++) {
-            const _spread = (_glowN - _i) * 1.7;
+            const _spread = (_glowN - _i) * (this.lightTheme ? 2.2 : 1.7);
             const _t = _i / (_glowN - 1);
-            const _a = 0.42 * _t * _t * _t;
+            const _a = (this.lightTheme ? 0.55 : 0.42) * _t * _t * _t;
             const _r = 6 + _spread * 0.35;
             _bgGfx.lineStyle(2, _glowColor, _a);
             _bgGfx.strokeRoundedRect(_gx - _spread, _gy - _spread, _gs + _spread * 2, _gs + _spread * 2, _r);
@@ -475,8 +475,8 @@ class MainScene extends Phaser.Scene {
         const ball = this.add.circle(
             Phaser.Math.Between(ox + 80, ox + fs - 80),
             Phaser.Math.Between(oy + 80, oy + fs - 80),
-            R, 0xf01cff
-        ).setStrokeStyle(1, 0xf8ae0f).setDepth(2);
+            R, this.lightTheme ? 0xff0000 : 0xf01cff
+        ).setStrokeStyle(1, this.lightTheme ? 0xff8844 : 0xf8ae0f).setDepth(2);
         this.physics.add.existing(ball);
         ball.body.setCircle(R).setBounce(1, 1).setAllowGravity(false).setDrag(0);
         ball.body.customSeparateX = true;
@@ -650,9 +650,9 @@ class MainScene extends Phaser.Scene {
         panelGfx.lineStyle(2.5, this.lightTheme ? 0x6b4010 : 0x1e3d6a, this.lightTheme ? 1 : 0.7);
         panelGfx.strokeRoundedRect(415, 16, 330, 36, 6);
         // ball icon
-        panelGfx.fillStyle(0xf01cff, 1);
+        panelGfx.fillStyle(this.lightTheme ? 0xee2211 : 0xf01cff, 1);
         panelGfx.fillCircle(_icoX + 6, 124, 6);
-        panelGfx.lineStyle(1.5, 0xf8ae0f, 1);
+        panelGfx.lineStyle(1.5, this.lightTheme ? 0xff8844 : 0xf8ae0f, 1);
         panelGfx.strokeCircle(_icoX + 6, 124, 6);
         this.add.renderTexture(0, 0, 760, 130).setDepth(0).setOrigin(0).draw(panelGfx, 0, 0);
         panelGfx.destroy();
@@ -667,7 +667,7 @@ class MainScene extends Phaser.Scene {
             this._pbx + this._pbw / 2,
             this._pby + this._pbh / 2,
             this._gf, '0 / 2,000,000', 36
-        ).setOrigin(0.5, 0.5).setDepth(5).setTint(this.lightTheme ? 0xaa7730 : 0x18ee50);
+        ).setOrigin(0.5, 0.5).setDepth(5).setTint(this.lightTheme ? 0xcc4488 : 0x18ee50);
         const _lvl = this.registry.get('level') || 1;
         const _barLabel = this.infiniteMode ? '∞  БЕСКОНЕЧНЫЙ РЕЖИМ' : `ЦЕЛЬ УРОВНЯ ${_lvl}`;
         this.add.bitmapText(this._pbx + this._pbw / 2, this._pby + this._pbh + 5, this._gf, _barLabel, 22
@@ -679,7 +679,7 @@ class MainScene extends Phaser.Scene {
         // divGfx.lineBetween(406, 6, 406, 122);
 
         // money number centered in the panel
-        this.moneyText = this.add.bitmapText(580, 34, this._gf, '0$', 36).setOrigin(0.5, 0.5).setDepth(5).setTint(this.lightTheme ? 0xaa7730 : 0x18ee50);
+        this.moneyText = this.add.bitmapText(580, 34, this._gf, '0$', 36).setOrigin(0.5, 0.5).setDepth(5).setTint(this.lightTheme ? 0xcc4488 : 0x18ee50);
         this.add.bitmapText(580, 58, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(this.lightTheme ? 0xc89050 : 0xffffff);
 
         // mute button (right side, vertically centered in panel)
@@ -889,20 +889,20 @@ class MainScene extends Phaser.Scene {
                 const bw = this.BALL_R * 2, bh = this.BALL_R * 2;
                 const x0 = slot.cx - bw / 2, y0 = slot.cy - bh / 2;
                 // outer glow halo gradient
-                const _slotGlow = this.lightTheme ? 0x9966cc : 0x3322aa;
+                const _slotGlow = this.lightTheme ? 0xcc5588 : 0x3322aa;
                 [10, 8, 7, 6, 5, 4, 3, 2, 1].forEach(b => {
                     slot.gfx.fillStyle(_slotGlow, (10 - b) * 0.006);
                     slot.gfx.fillRect(x0 - b, y0 - b, bw + b * 2, bh + b * 2);
                 });
                 // ghost fill
-                slot.gfx.fillStyle(this.lightTheme ? 0xe8d8f8 : 0x0c0e22, this.lightTheme ? 0.7 : 0.5);
+                slot.gfx.fillStyle(this.lightTheme ? 0xfce0ec : 0x0c0e22, this.lightTheme ? 0.7 : 0.5);
                 slot.gfx.fillRect(x0, y0, bw, bh);
                 // inner cross lines
-                slot.gfx.lineStyle(0.5, this.lightTheme ? 0xaa88dd : 0x4433bb, 0.35);
+                slot.gfx.lineStyle(0.5, this.lightTheme ? 0xdd88aa : 0x4433bb, 0.35);
                 slot.gfx.lineBetween(x0 + bw / 2, y0 + 2, x0 + bw / 2, y0 + bh - 2);
                 slot.gfx.lineBetween(x0 + 2, y0 + bh / 2, x0 + bw - 2, y0 + bh / 2);
                 // outer border
-                slot.gfx.lineStyle(1.5, this.lightTheme ? 0x9966cc : 0x4433bb, this.lightTheme ? 0.7 : 0.45);
+                slot.gfx.lineStyle(1.5, this.lightTheme ? 0xcc5588 : 0x4433bb, this.lightTheme ? 0.7 : 0.45);
                 slot.gfx.strokeRect(x0, y0, bw, bh);
             }
         });
@@ -913,8 +913,8 @@ class MainScene extends Phaser.Scene {
         let fillTop, fillBot, outlineColor;
         if (this.lightTheme) {
             const t = Math.min(1, (iv - 1) / 99);
-            fillTop = this._lerpColor(0xc8b0e8, 0x9966cc, t);
-            fillBot = this._lerpColor(0xa890cc, 0x7744aa, t);
+            fillTop = this._lerpColor(0xf0c0d8, 0xcc5588, t);
+            fillBot = this._lerpColor(0xe0a0c0, 0xaa3366, t);
             outlineColor = fillTop;
         } else {
             const colors = this._incomeToColors(iv);
@@ -1048,7 +1048,7 @@ class MainScene extends Phaser.Scene {
                 if (wall._fireEmitter) { try { wall._fireEmitter.destroy(); } catch (e) { } }
                 const _hw = wall.width / 2, _hh = wall.height / 2;
                 const _fe = this.add.particles(wall.x, wall.y, 'luz', {
-                    lifespan: 270, frequency: 40, quantity: 5, blendMode: 'ADD',
+                    lifespan: 270, frequency: 40, quantity: 5, blendMode: 'NORMAL',
                     gravityY: 20, speedX: { min: 0, max: 0 }, speedY: { min: -180, max: 0 },
                     scale: { start: 0.62, end: 0.46 }, tint: [0xb58608, 0xaa3a16, 0xff0000, 0xd46a0d],
                     alpha: { start: 1, end: 0.34 },
@@ -1072,10 +1072,10 @@ class MainScene extends Phaser.Scene {
                 if (wall._miniSnowGfx) { wall._miniSnowGfx.forEach(g => { try { g.destroy(); } catch (e) { } }); wall._miniSnowGfx = []; }
                 if (wall._snowEmitter) { try { wall._snowEmitter.destroy(); } catch (e) { } }
                 const _se = this.add.particles(wall.x, wall.y, 'star', {
-                    lifespan: 270, frequency: 40, quantity: 5, blendMode: 'ADD',
+                    lifespan: 270, frequency: 40, quantity: 5, blendMode: 'NORMAL',
                     gravityY: -10, speedX: { min: -80, max: 80 }, speedY: { min: -80, max: 80 },
                     scale: { start: 1.5, end: 0.23 }, rotate: { start: 0, end: 360 },
-                    tint: [0x88ccff, 0xffffff, 0x00aaff],
+                    tint: [0x88ccff, 0x0000ff,0xffffff],//tint: [0x88ccff, 0xffffff, 0x00aaff],
                     emitZone: [{ quantity: 32, type: 'edge', total: 32, yoyo: false, source: new Phaser.Geom.Ellipse(0, 0, wall.width + 8, wall.height + 8) }]
                 }).setDepth(3.5);
                 wall._snowEmitter = _se;
@@ -1206,9 +1206,9 @@ class MainScene extends Phaser.Scene {
     createButton(cx, cy, emoji, label, initCost, callback, sharedBg) {
         // block background — subtle dark panel for the whole column
         const blockBg = sharedBg || this.add.graphics();
-        blockBg.fillStyle(this.lightTheme ? 0xede0f8 : 0x0d2818, this.lightTheme ? 1 : 0.72);
+        blockBg.fillStyle(this.lightTheme ? 0xfce8f0 : 0x0d2818, this.lightTheme ? 1 : 0.72);
         blockBg.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
-        blockBg.lineStyle(2, this.lightTheme ? 0x9966cc : 0x1e5a38, this.lightTheme ? 0.7 : 0.4);
+        blockBg.lineStyle(2, this.lightTheme ? 0xcc5588 : 0x1e5a38, this.lightTheme ? 0.7 : 0.4);
         blockBg.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
 
         // transparent hit area (on top of blockBg)
@@ -1218,9 +1218,9 @@ class MainScene extends Phaser.Scene {
         // price panel
         const px = cx - 80, py = cy - 78, pw = 160, ph = 20;
         const pnlGfx = sharedBg || this.add.graphics();
-        pnlGfx.fillStyle(this.lightTheme ? 0xd8c0f0 : 0x071609, 1);
+        pnlGfx.fillStyle(this.lightTheme ? 0xf4c8dc : 0x071609, 1);
         pnlGfx.fillRoundedRect(px, py, pw, ph, 5);
-        pnlGfx.lineStyle(1, this.lightTheme ? 0x7744aa : 0x1e6a3d, this.lightTheme ? 0.9 : 0.7);
+        pnlGfx.lineStyle(1, this.lightTheme ? 0xaa3366 : 0x1e6a3d, this.lightTheme ? 0.9 : 0.7);
         pnlGfx.strokeRoundedRect(px, py, pw, ph, 5);
 
         const ctTxt = this.add.bitmapText(cx, py + ph / 2, this._gf, `${initCost.toLocaleString()}$`, 23).setOrigin(0.5, 0.5).setTint(0xffdd88);
@@ -1254,9 +1254,9 @@ class MainScene extends Phaser.Scene {
         // description background
         const descY = cy + 57;
         const descBg = sharedBg || this.add.graphics();
-        descBg.fillStyle(this.lightTheme ? 0xd8c0f0 : 0x0e2e16, 1);
+        descBg.fillStyle(this.lightTheme ? 0xf4c8dc : 0x0e2e16, 1);
         descBg.fillRoundedRect(cx - 80, descY - 11, 160, 22, 5);
-        descBg.lineStyle(1, this.lightTheme ? 0x7744aa : 0x2a7a4d, this.lightTheme ? 0.9 : 0.7);
+        descBg.lineStyle(1, this.lightTheme ? 0xaa3366 : 0x2a7a4d, this.lightTheme ? 0.9 : 0.7);
         descBg.strokeRoundedRect(cx - 80, descY - 11, 160, 22, 5);
 
         const lbTxt = this.add.bitmapText(cx, descY, this._gf, label, 21).setOrigin(0.5, 0.5).setTint(0xffffff);
@@ -2055,8 +2055,8 @@ class MainScene extends Phaser.Scene {
     _setWallTint(wall, val) {
         if (this.lightTheme) {
             const t = Math.min(1, (val - 1) / 99);
-            const top = this._lerpColor(0xc8b0e8, 0x9966cc, t);
-            const bot = this._lerpColor(0xa890cc, 0x7744aa, t);
+            const top = this._lerpColor(0xf0c0d8, 0xcc5588, t);
+            const bot = this._lerpColor(0xe0a0c0, 0xaa3366, t);
             wall.setTint(top, top, bot, bot);
         } else {
             const { top, bot } = this._incomeToColors(val);
@@ -2156,23 +2156,38 @@ class MainScene extends Phaser.Scene {
 
             // boundaries
             const _snd = () => { const now = this.time.now; if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('hit'); } };
+            const _wallSplash = (nx, ny) => {
+                const _ballColor = this.lightTheme ? 0xee2211 : 0xf01cff;
+                const _angDeg = Phaser.Math.RadToDeg(Math.atan2(ny, nx));
+                const _sp = this.add.particles(0, 0, 'wallDust', {
+                    lifespan: { min: 100, max: 220 },
+                    scale: { start: 0.35, end: 0 },
+                    alpha: { start: 1, end: 0 },
+                    speed: { min: 40, max: 110 },
+                    angle: { min: _angDeg - 60, max: _angDeg + 60 },
+                    tint: [_ballColor, 0xffffff, _ballColor],
+                    quantity: 5, frequency: -1,
+                }).setDepth(25);
+                _sp.explode(5, ball.x, ball.y);
+                this.time.delayedCall(320, () => { if (_sp && _sp.active) _sp.destroy(); });
+            };
             if (ball.x < minX) {
                 ball.setX(minX); ball.body.setVelocityX(Math.abs(ball.body.velocity.x));
                 ball.currentSpeed = ball.bounceSpeed;
-                this._squishBall(ball, 0.55, 1.45); _snd();
+                this._squishBall(ball, 0.55, 1.45); _snd(); _wallSplash(1, 0);
             } else if (ball.x > maxX) {
                 ball.setX(maxX); ball.body.setVelocityX(-Math.abs(ball.body.velocity.x));
                 ball.currentSpeed = ball.bounceSpeed;
-                this._squishBall(ball, 0.55, 1.45); _snd();
+                this._squishBall(ball, 0.55, 1.45); _snd(); _wallSplash(-1, 0);
             }
             if (ball.y < minY) {
                 ball.setY(minY); ball.body.setVelocityY(Math.abs(ball.body.velocity.y));
                 ball.currentSpeed = ball.bounceSpeed;
-                this._squishBall(ball, 1.45, 0.55); _snd();
+                this._squishBall(ball, 1.45, 0.55); _snd(); _wallSplash(0, 1);
             } else if (ball.y > maxY) {
                 ball.setY(maxY); ball.body.setVelocityY(-Math.abs(ball.body.velocity.y));
                 ball.currentSpeed = ball.bounceSpeed;
-                this._squishBall(ball, 1.45, 0.55); _snd();
+                this._squishBall(ball, 1.45, 0.55); _snd(); _wallSplash(0, -1);
             }
 
             // wall collision — T-walls use 2 rects, others 1; slow-zone check merged here
@@ -2207,6 +2222,19 @@ class MainScene extends Phaser.Scene {
                         const isH = Math.abs(hitNy) > Math.abs(hitNx);
                         this._squishBall(ball, isH ? 1.45 : 0.55, isH ? 0.55 : 1.45);
                     }
+                    const _angDeg = Phaser.Math.RadToDeg(Math.atan2(hitNy, hitNx));
+                    const _ballColor = this.lightTheme ? 0xee2211 : 0xf01cff;
+                    const _sp = this.add.particles(0, 0, 'wallDust', {
+                        lifespan: { min: 150, max: 300 },
+                        scale: { start: 0.55, end: 0 },
+                        alpha: { start: 1, end: 0 },
+                        speed: { min: 60, max: 160 },
+                        angle: { min: _angDeg - 60, max: _angDeg + 60 },
+                        tint: [_ballColor, 0xffffff, _ballColor],
+                        quantity: 8, frequency: -1,
+                    }).setDepth(25);
+                    _sp.explode(8, ball.x, ball.y);
+                    this.time.delayedCall(400, () => { if (_sp && _sp.active) _sp.destroy(); });
                 }
                 const now = this.time.now;
                 if (now - (wall.lastHit || 0) >= 16) {
@@ -2309,7 +2337,7 @@ class MainScene extends Phaser.Scene {
                 ball._isTinted = false;
                 if (ball._slowTween) { try { ball._slowTween.stop(); } catch (e) { } ball._slowTween = null; }
                 if (ball._slowEmitter) { try { ball._slowEmitter.destroy(); } catch (e) { } ball._slowEmitter = null; }
-                ball.setFillStyle(0xf01cff);
+                ball.setFillStyle(this.lightTheme ? 0xee2211 : 0xf01cff);
                 ball.setStrokeStyle(1, 0xf8ae0f);
             }
             if (_isSlowed && ball._slowEmitter && ball._slowEmitter.active) {
