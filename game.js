@@ -266,6 +266,12 @@ class MainScene extends Phaser.Scene {
                     this._createZone(cw.x, cw.y, D, D * 2, 'gold');
                 } else if (cw.specialType === 'income') {
                     this.createWall(cw.x, cw.y, D, D, 'block', Phaser.Math.Between(1, 3));
+                } else if (cw.specialType === 'teleport') {
+                    const wall = this.createWall(cw.x, cw.y, D, D, 'block', 0);
+                    wall.incomeValue = 0;
+                    wall.isEditorWall = true;
+                    wall.teleportTarget = (cw.targetX != null) ? { x: cw.targetX, y: cw.targetY } : null;
+                    this._applySpecialWallStyle(wall, 'teleport', null, null);
                 } else {
                     const wall = this.createWall(cw.x, cw.y, D, D, 'block', 0);
                     wall.incomeValue = 0;
@@ -398,6 +404,21 @@ class MainScene extends Phaser.Scene {
                 case 'error': { const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = 'sawtooth'; o.frequency.value = 140; g.gain.setValueAtTime(0.09, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2); o.start(t); o.stop(t + 0.2); break; }
                 case 'freeze': { if (!this._freezeBuffer) break; const _fs = ctx.createBufferSource(); _fs.buffer = this._freezeBuffer; const _fg = ctx.createGain(); _fs.connect(_fg); _fg.connect(ctx.destination); _fg.gain.setValueAtTime(0.55, t); _fs.start(t); break; }
                 case 'trap': { for (let _pi = 0; _pi < 3; _pi++) { const _dt = _pi * 0.072, _dur = 0.09; const _buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * _dur), ctx.sampleRate); const _d = _buf.getChannelData(0); for (let _j = 0; _j < _d.length; _j++) _d[_j] = Math.random() * 2 - 1; const _src = ctx.createBufferSource(); _src.buffer = _buf; const _hi = ctx.createBiquadFilter(); _hi.type = 'highpass'; _hi.frequency.value = 3200 + _pi * 400; const _g = ctx.createGain(); _src.connect(_hi); _hi.connect(_g); _g.connect(ctx.destination); _g.gain.setValueAtTime(0.16, t + _dt); _g.gain.exponentialRampToValueAtTime(0.001, t + _dt + _dur); _src.start(t + _dt); _src.stop(t + _dt + _dur + 0.01); } break; }
+                case 'teleport': {
+                    const o1 = ctx.createOscillator(), g1 = ctx.createGain();
+                    o1.connect(g1); g1.connect(ctx.destination);
+                    o1.type = 'sine';
+                    o1.frequency.setValueAtTime(680, t); o1.frequency.exponentialRampToValueAtTime(110, t + 0.22);
+                    g1.gain.setValueAtTime(0.14, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+                    o1.start(t); o1.stop(t + 0.26);
+                    const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+                    o2.connect(g2); g2.connect(ctx.destination);
+                    o2.type = 'triangle';
+                    o2.frequency.setValueAtTime(1360, t); o2.frequency.exponentialRampToValueAtTime(520, t + 0.13);
+                    g2.gain.setValueAtTime(0.07, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
+                    o2.start(t); o2.stop(t + 0.18);
+                    break;
+                }
                 case 'bonus': { [520, 780, 1100, 1560, 2100].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(), dt = i * 0.052; o.connect(g); g.connect(ctx.destination); o.type = i < 3 ? 'sine' : 'triangle'; o.frequency.setValueAtTime(f, t + dt); o.frequency.exponentialRampToValueAtTime(f * 1.08, t + dt + 0.14); g.gain.setValueAtTime(0, t + dt); g.gain.linearRampToValueAtTime(0.1, t + dt + 0.018); g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.2); o.start(t + dt); o.stop(t + dt + 0.21); }); break; }
                 case 'win': {
                     const fanfare = [523, 659, 784, 659, 784, 1047, 1319, 1568, 2093];
@@ -1102,14 +1123,16 @@ class MainScene extends Phaser.Scene {
             ? { fill: 0x220000, fillB: 0x440000, outline: 0xff2222 }
             : specialType === 'slow'
                 ? { fill: 0x001030, fillB: 0x002060, outline: 0x2266ff }
-                : (specialType === 'boundary' || specialType === 'static')
-                    ? { fill: 0x060810, fillB: 0x0a0a16, outline: bdColor }
-                    : { fill: 0x1a1a1a, fillB: 0x2a2a2a, outline: 0x888888 };
+                : specialType === 'teleport'
+                    ? { fill: 0x1a0033, fillB: 0x330055, outline: 0xcc44ff }
+                    : (specialType === 'boundary' || specialType === 'static')
+                        ? { fill: 0x060810, fillB: 0x0a0a16, outline: bdColor }
+                        : { fill: 0x1a1a1a, fillB: 0x2a2a2a, outline: 0x888888 };
         const _rr = (specialType === 'trap' || specialType === 'slow')
             ? Math.round(Math.min(wall.width, wall.height) * 0.2)
             : 3;
         // Apply special tint — all from same wallShapes atlas so still batches
-        if (specialType !== 'trap' && specialType !== 'slow') {
+        if (specialType !== 'trap' && specialType !== 'slow' && specialType !== 'teleport') {
             wall.setTint(colors.outline);
         }
         wall._drawFill = (ox, oy) => { if (wall.active) wall.setPosition(ox, oy); };
@@ -1119,7 +1142,7 @@ class MainScene extends Phaser.Scene {
         };
         if (wall._iconGfx) { try { wall._iconGfx.destroy(); } catch (e) { } wall._iconGfx = null; }
         // Hide fill for pass-through zones (they look like fields, not walls)
-        if (specialType === 'trap' || specialType === 'slow') {
+        if (specialType === 'trap' || specialType === 'slow' || specialType === 'teleport') {
             if (wall._fillGfx) { wall._fillGfx.setDepth(0.8); wall._fillGfx.setAlpha(0); }
         }
         if (specialType === 'trap' || specialType === 'slow') {
@@ -1187,6 +1210,43 @@ class MainScene extends Phaser.Scene {
             } else {
                 wall.valueText.setText('');
             }
+        }
+        if (specialType === 'teleport') {
+            if (wall._tpAura) { try { wall._tpAura.destroy(); } catch (e) { } }
+            if (wall._tpEmitter) { try { wall._tpEmitter.destroy(); } catch (e) { } }
+            if (wall._outlineGfx) wall._outlineGfx.setAlpha(0);
+            // Background aura — slow large glowing puffs
+            const _ta = this.add.particles(wall.x, wall.y-wall.height/2, 'luz', {
+                lifespan: 900,
+                frequency: 120,
+                quantity: 2,
+                // blendMode: 'ADD',
+                speed: { min: 4, max: 18 },
+                angle: { min: 0, max: 360 },
+                scale: { start: 2, end: 0 },
+                alpha: { start: 0.18, end: 0 },
+                   tint: [0xffffff, 0x00ffaa, 0x00ff00],
+            }).setDepth(3.2);
+            wall._tpAura = _ta;
+            // Foreground vortex stream
+            const _te = this.add.particles(wall.x, wall.y, 'luz', {
+                lifespan: 600,
+                frequency: 17,
+                quantity: 1,
+                // blendMode: 'ADD',
+                speedX: { min: -300, max: 300 },
+                speedY: { min: -60, max: -110 },
+                scale: { start: 0.6, end: 0 },
+                tint: [0xffffff, 0x00ffaa, 0x00ff00],
+            }).setDepth(3.5);
+            _te.createGravityWell({ x: 0, y: -21,
+                power: 0.3,
+                epsilon: 25, gravity: 100 });
+            wall._tpEmitter = _te;
+            wall.on('destroy', () => {
+                if (_ta && _ta.active) _ta.destroy();
+                if (_te && _te.active) _te.destroy();
+            });
         }
         if (specialType === 'boundary' || specialType === 'static') {
             wall.isBoundary = true;
@@ -2398,6 +2458,23 @@ class MainScene extends Phaser.Scene {
                     if (ball.x >= wall.x - _shw && ball.x <= wall.x + _shw && ball.y >= wall.y - _shh && ball.y <= wall.y + _shh) _newInSlowZone = true;
                     continue;
                 }
+                if (wall.specialType === 'teleport') {
+                    if (wall.teleportTarget) {
+                        const _thw = wall.width / 2, _thh = wall.height / 2;
+                        const _cx = Phaser.Math.Clamp(ball.x, wall.x - _thw, wall.x + _thw);
+                        const _cy = Phaser.Math.Clamp(ball.y, wall.y - _thh, wall.y + _thh);
+                        const _ddx = ball.x - _cx, _ddy = ball.y - _cy;
+                        if (_ddx * _ddx + _ddy * _ddy < r * r) {
+                            const _tnow = this.time.now;
+                            if (!ball._tpCooldown || _tnow - ball._tpCooldown > 600) {
+                                ball.setPosition(wall.teleportTarget.x, wall.teleportTarget.y);
+                                ball._tpCooldown = _tnow;
+                                this.playSound('teleport');
+                            }
+                        }
+                    }
+                    continue;
+                }
                 const rects = this._getWallCollisionRects(wall);
                 let hitNx = 0, hitNy = -1, hitOverlap = 0, didHit = false;
                 for (const rect of rects) {
@@ -2898,6 +2975,8 @@ class EditorScene extends Phaser.Scene {
         this.cells = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
         this.currentTool = 'boundary';
         this.currentZoneType = 'silver';
+        this._teleportPairCounter = 1;
+        this._pendingTeleport = null;
         this.currentBoundaryColor = 0x888888;
         this.isPainting = false;
         this.lightTheme = false;
@@ -2956,6 +3035,7 @@ class EditorScene extends Phaser.Scene {
             { key: 'trap', label: 'ЛОВУШКА', color: 0xff3333, desc: '-деньги' },
             { key: 'slow', label: 'ЛЁД', color: 0x3366ff, desc: 'Замедление' },
             { key: 'zone', label: 'ЗОНА', color: 0x00ddaa, desc: 'Пасс. доход' },
+            { key: 'teleport', label: 'ПОРТАЛ', color: 0xcc44ff, desc: 'Пара' },
             { key: 'erase', label: 'СТЕРЕТЬ', color: 0x444444, desc: '' },
         ];
         const tBtnW = colW - 4, tBtnH = 44, tBtnX = sideX + 2;
@@ -3249,6 +3329,14 @@ class EditorScene extends Phaser.Scene {
                     this.cells[row - 1][col] = null;
                 }
             }
+            if (_ec && _ec.type === 'teleport') {
+                if (_ec.partnerRow !== undefined) {
+                    const _p = this.cells[_ec.partnerRow][_ec.partnerCol];
+                    if (_p) { delete _p.partnerRow; delete _p.partnerCol; }
+                }
+                if (this._pendingTeleport && this._pendingTeleport.row === row && this._pendingTeleport.col === col)
+                    this._pendingTeleport = null;
+            }
             this.cells[row][col] = null;
         } else if (this.currentTool === 'boundary') {
             this.cells[row][col] = { type: 'boundary', color: this.currentBoundaryColor };
@@ -3256,6 +3344,21 @@ class EditorScene extends Phaser.Scene {
             this.cells[row][col] = { type: 'trap', damage: this.currentTrapDamage };
         } else if (this.currentTool === 'income') {
             this.cells[row][col] = { type: 'income' };
+        } else if (this.currentTool === 'teleport') {
+            const _cur = this.cells[row][col];
+            if (_cur && _cur.type === 'teleport') return;
+            if (this._pendingTeleport) {
+                const { row: ar, col: ac, pairId } = this._pendingTeleport;
+                if (ar === row && ac === col) return;
+                this.cells[row][col] = { type: 'teleport', pairId, partnerRow: ar, partnerCol: ac };
+                this.cells[ar][ac].partnerRow = row;
+                this.cells[ar][ac].partnerCol = col;
+                this._pendingTeleport = null;
+            } else {
+                const pairId = this._teleportPairCounter++;
+                this.cells[row][col] = { type: 'teleport', pairId };
+                this._pendingTeleport = { row, col, pairId };
+            }
         } else if (this.currentTool === 'zone') {
             if (row + 1 >= this.ROWS) return;
             const _zt = this.currentZoneType === 'gold' ? 'goldZone' : 'silverZone';
@@ -3306,6 +3409,14 @@ class EditorScene extends Phaser.Scene {
                     g.fillStyle(0x001040, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     g.lineStyle(2, 0x3366ff, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D / 2, this._gf, '❄', 13).setOrigin(0.5).setDepth(3).setTint(0x88aaff));
+                } else if (cell.type === 'teleport') {
+                    const _linked = cell.partnerRow !== undefined;
+                    const _tc = _linked ? 0xcc44ff : 0x885599;
+                    g.fillStyle(_linked ? 0x1a0033 : 0x0d001a, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    g.lineStyle(2, _tc, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
+                    const _lbl = _linked ? String(cell.pairId) : '?';
+                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D / 2 - 5, this._gf, _lbl, 13).setOrigin(0.5).setDepth(3).setTint(_tc));
+                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D / 2 + 7, this._gf, _linked ? 'TP' : '..', 9).setOrigin(0.5).setDepth(3).setTint(_tc));
                 } else if (cell.type === 'income') {
                     const iv = cell.incomeValue || 1;
                     g.fillStyle(0x002200, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
@@ -3332,6 +3443,10 @@ class EditorScene extends Phaser.Scene {
                     if (_sc.color) _se.color = _sc.color;
                     if (_sc.damage) _se.damage = _sc.damage;
                     if (_sc.incomeValue !== undefined) _se.incomeValue = _sc.incomeValue;
+                    if (_sc.type === 'teleport') {
+                        if (_sc.pairId !== undefined) _se.pairId = _sc.pairId;
+                        if (_sc.partnerRow !== undefined) { _se.partnerRow = _sc.partnerRow; _se.partnerCol = _sc.partnerCol; }
+                    }
                     walls.push(_se);
                 }
         try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney })); } catch (e) { }
@@ -3358,12 +3473,19 @@ class EditorScene extends Phaser.Scene {
                     if (w.color) _lc.color = w.color;
                     if (w.damage) _lc.damage = w.damage;
                     if (w.incomeValue !== undefined) _lc.incomeValue = w.incomeValue;
+                    if (w.type === 'teleport') {
+                        if (w.pairId !== undefined) _lc.pairId = w.pairId;
+                        if (w.partnerRow !== undefined) { _lc.partnerRow = w.partnerRow; _lc.partnerCol = w.partnerCol; }
+                    }
                     this.cells[w.row][w.col] = _lc;
                     if ((w.type === 'silverZone' || w.type === 'goldZone' || w.type === 'zone') && w.row + 1 < this.ROWS) {
                         this.cells[w.row + 1][w.col] = { type: 'zoneBottom' };
                     }
                 }
             });
+            let _maxPairId = 0;
+            walls.forEach(w => { if (w.type === 'teleport' && w.pairId) _maxPairId = Math.max(_maxPairId, w.pairId); });
+            if (_maxPairId >= this._teleportPairCounter) this._teleportPairCounter = _maxPairId + 1;
             if (this._drawEditorBg) this._drawEditorBg();
             this._drawCells();
         } catch (e) { }
@@ -3381,6 +3503,10 @@ class EditorScene extends Phaser.Scene {
                     if (_tc.color) _te.color = _tc.color;
                     if (_tc.damage) _te.damage = _tc.damage;
                     if (_tc.incomeValue !== undefined) _te.incomeValue = _tc.incomeValue;
+                    if (_tc.type === 'teleport') {
+                        if (_tc.pairId !== undefined) _te.pairId = _tc.pairId;
+                        if (_tc.partnerRow !== undefined) { _te.partnerRow = _tc.partnerRow; _te.partnerCol = _tc.partnerCol; }
+                    }
                     snap.push(_te);
                 }
         try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls: snap, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney })); } catch (e) { }
@@ -3396,7 +3522,12 @@ class EditorScene extends Phaser.Scene {
                 if (this.cells[r][c]) {
                     const _tc = this.cells[r][c];
                     if (_tc.type === 'zoneBottom') continue;
-                    customWalls.push({ x: GS_GSX + c * D + D / 2, y: GS_GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null, incomeValue: _tc.incomeValue || null });
+                    const _cw = { x: GS_GSX + c * D + D / 2, y: GS_GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null, incomeValue: _tc.incomeValue || null };
+                    if (_tc.type === 'teleport' && _tc.partnerCol !== undefined) {
+                        _cw.targetX = GS_GSX + _tc.partnerCol * D + D / 2;
+                        _cw.targetY = GS_GSY + _tc.partnerRow * D + D / 2;
+                    }
+                    customWalls.push(_cw);
                 }
         this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney });
     }
