@@ -230,8 +230,8 @@ class MainScene extends Phaser.Scene {
         _bgGfx.destroy();
 
         if (this.lightTheme) {
-            this.cameras.main.setBackgroundColor('#e8dbb8');
-            document.body.style.background = '#e8dbb8';
+            this.cameras.main.setBackgroundColor('#b1a78d');//#e8dbb8
+            document.body.style.background = '#b1a78d';
         }
         this.events.once('shutdown', () => {
             document.body.style.transition = '';
@@ -756,7 +756,7 @@ class MainScene extends Phaser.Scene {
         const _lvl = this.registry.get('level') || 1;
         const _barLabel = this.infiniteMode ? '∞  БЕСКОНЕЧНЫЙ РЕЖИМ' : `ЦЕЛЬ УРОВНЯ ${_lvl}`;
         this.add.bitmapText(this._pbx + this._pbw / 2, this._pby + this._pbh + 5, this._gf, _barLabel, 22
-        ).setOrigin(0.5, 0).setTint(this.infiniteMode ? 0x44aaff : (this.lightTheme ? 0xc89050 : 0xffffff));
+        ).setOrigin(0.5, 0).setTint(this.infiniteMode ? 0x44aaff : 0xffffff);
 
         // ── Vertical divider ──────────────────────────────────────
         // const divGfx = this.add.graphics();
@@ -765,7 +765,7 @@ class MainScene extends Phaser.Scene {
 
         // money number centered in the panel
         this.moneyText = this.add.bitmapText(580, 34, this._gf, '0$', 36).setOrigin(0.5, 0.5).setDepth(5).setTint(this.lightTheme ? 0xcc4488 : 0x18ee50);
-        this.add.bitmapText(580, 58, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(this.lightTheme ? 0xc89050 : 0xffffff);
+        this.add.bitmapText(580, 58, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(0xffffff);
 
         // mute button (right side, vertically centered in panel)
         this.ballCountText = this.add.bitmapText(_valX, 116, this._gf, '1 шар', 16).setOrigin(0, 0).setDepth(5).setTint(0xcce4ff);
@@ -1214,38 +1214,85 @@ class MainScene extends Phaser.Scene {
         if (specialType === 'teleport') {
             if (wall._tpAura) { try { wall._tpAura.destroy(); } catch (e) { } }
             if (wall._tpEmitter) { try { wall._tpEmitter.destroy(); } catch (e) { } }
+            if (wall._tpVortexGfx) { try { wall._tpVortexGfx.destroy(); } catch (e) { } }
+            if (wall._tpVortexUpdate) this.events.off('update', wall._tpVortexUpdate);
             if (wall._outlineGfx) wall._outlineGfx.setAlpha(0);
-            // Background aura — slow large glowing puffs
-            const _ta = this.add.particles(wall.x, wall.y-wall.height/2, 'luz', {
-                lifespan: 900,
-                frequency: 120,
-                quantity: 2,
-                // blendMode: 'ADD',
-                speed: { min: 4, max: 18 },
-                angle: { min: 0, max: 360 },
-                scale: { start: 2, end: 0 },
-                alpha: { start: 0.18, end: 0 },
-                   tint: [0xffffff, 0x00ffaa, 0x00ff00],
-            }).setDepth(3.2);
-            wall._tpAura = _ta;
-            // Foreground vortex stream
-            const _te = this.add.particles(wall.x, wall.y, 'luz', {
-                lifespan: 600,
-                frequency: 17,
-                quantity: 1,
-                // blendMode: 'ADD',
-                speedX: { min: -300, max: 300 },
-                speedY: { min: -60, max: -110 },
-                scale: { start: 0.6, end: 0 },
-                tint: [0xffffff, 0x00ffaa, 0x00ff00],
-            }).setDepth(3.5);
-            _te.createGravityWell({ x: 0, y: -21,
-                power: 0.3,
-                epsilon: 25, gravity: 100 });
-            wall._tpEmitter = _te;
+
+            const _vR = wall.width / 2 * 0.88;
+            const _vcx = wall.x, _vcy = wall.y;
+            const _vgfx = this.add.graphics().setDepth(1.5);
+            wall._tpVortexGfx = _vgfx;
+
+            // Spark state (variant C — lines rushing inward)
+            const _SPARKS = 14;
+            const _sparks = Array.from({ length: _SPARKS }, (_, i) => ({
+                angle: (i / _SPARKS) * Math.PI * 2 + Math.random() * 0.2,
+                phase: Math.random(),
+                speed: 0.52 + Math.random() * 0.38,
+                width: 1.2 + Math.random() * 1.6,
+            }));
+            let _vt = 0;
+
+            const _drawVortex = (time, delta) => {
+                if (!_vgfx || !_vgfx.active) return;
+                _vt += (delta || 16) / 1000;
+                _vgfx.clear();
+
+                // dark background fill
+                _vgfx.fillStyle(0x080018, 1);
+                _vgfx.fillCircle(_vcx, _vcy, _vR);
+
+                // soft outer glow (layered circles, no radial gradient in Phaser Graphics)
+                for (let _gi = 4; _gi >= 1; _gi--) {
+                    _vgfx.fillStyle(0x7010b0, 0.045 * _gi);
+                    _vgfx.fillCircle(_vcx, _vcy, _vR * (1 + _gi * 0.18));
+                }
+
+                // variant C — spark lines rushing inward
+                for (const _sp of _sparks) {
+                    _sp.phase = (_sp.phase + _sp.speed * 0.013) % 1;
+                    const _hR = _vR * (1 - _sp.phase);
+                    const _tR = Math.min(_vR, _hR + _vR * 0.3);
+                    if (_hR < 3) continue;
+                    const _sa = _sp.phase < 0.1 ? _sp.phase / 0.1 : Math.max(0, 1 - _sp.phase * 0.88);
+                    const _hx = _vcx + Math.cos(_sp.angle) * _hR, _hy = _vcy + Math.sin(_sp.angle) * _hR;
+                    const _tx = _vcx + Math.cos(_sp.angle) * _tR, _ty = _vcy + Math.sin(_sp.angle) * _tR;
+                    _vgfx.lineStyle(_sp.width, 0xdd88ff, _sa * 0.9);
+                    _vgfx.beginPath(); _vgfx.moveTo(_tx, _ty); _vgfx.lineTo(_hx, _hy); _vgfx.strokePath();
+                }
+
+                // variant A — 3 spinning arc arms
+                for (let _ai = 0; _ai < 3; _ai++) {
+                    const _sa = _vt * 1.5 + _ai * Math.PI * 2 / 3;
+                    _vgfx.lineStyle(2.5, 0xff99ff, 0.6);
+                    _vgfx.beginPath();
+                    _vgfx.arc(_vcx, _vcy, _vR * 0.66, _sa, _sa + 0.95, false);
+                    _vgfx.strokePath();
+                }
+
+                // outer ring
+                _vgfx.lineStyle(2.5, 0xcc44ff, 0.88);
+                _vgfx.strokeCircle(_vcx, _vcy, _vR);
+
+                // rotating dots on rim
+                for (let _di = 0; _di < 5; _di++) {
+                    const _da = _vt * 1.2 + _di * Math.PI * 2 / 5;
+                    _vgfx.fillStyle(0xff99ff, 0.95);
+                    _vgfx.fillCircle(_vcx + Math.cos(_da) * _vR, _vcy + Math.sin(_da) * _vR, 2.5);
+                }
+
+                // dark core
+                _vgfx.fillStyle(0x030010, 1);
+                _vgfx.fillCircle(_vcx, _vcy, _vR * 0.36);
+                _vgfx.lineStyle(1.5, 0xaa44dd, 0.45);
+                _vgfx.strokeCircle(_vcx, _vcy, _vR * 0.36);
+            };
+
+            wall._tpVortexUpdate = _drawVortex;
+            this.events.on('update', _drawVortex);
             wall.on('destroy', () => {
-                if (_ta && _ta.active) _ta.destroy();
-                if (_te && _te.active) _te.destroy();
+                if (_vgfx && _vgfx.active) _vgfx.destroy();
+                this.events.off('update', _drawVortex);
             });
         }
         if (specialType === 'boundary' || specialType === 'static') {
@@ -2407,6 +2454,7 @@ class MainScene extends Phaser.Scene {
 
             if (ball._multLabel && ball._multLabel.active) ball._multLabel.setPosition(ball.x, ball.y);
             if (ball._highlight && ball._highlight.active) ball._highlight.setPosition(ball.x - r * 0.28, ball.y - r * 0.3);
+            if (ball._teleporting) return;
 
             // emit trail particles at exact ball position
             if (ball.trail) ball.trail.explode(1, ball.x, ball.y);
@@ -2467,9 +2515,35 @@ class MainScene extends Phaser.Scene {
                         if (_ddx * _ddx + _ddy * _ddy < r * r) {
                             const _tnow = this.time.now;
                             if (!ball._tpCooldown || _tnow - ball._tpCooldown > 600) {
-                                ball.setPosition(wall.teleportTarget.x, wall.teleportTarget.y);
-                                ball._tpCooldown = _tnow;
+                                const _tpx = wall.teleportTarget.x, _tpy = wall.teleportTarget.y;
+                                const _svx = ball.body.velocity.x, _svy = ball.body.velocity.y;
+                                const _hl = (ball._highlight && ball._highlight.active) ? ball._highlight : null;
+                                ball._teleporting = true;
+                                ball.body.setVelocity(0, 0);
                                 this.playSound('teleport');
+                                this.tweens.killTweensOf(ball);
+                                if (_hl) this.tweens.killTweensOf(_hl);
+                                this.tweens.add({
+                                    targets: ball, x: wall.x, y: wall.y, scaleX: 0, scaleY: 0,
+                                    duration: 160, ease: 'Power2',
+                                    onComplete: () => {
+                                        if (!ball || !ball.active) return;
+                                        ball.setPosition(_tpx, _tpy);
+                                        if (_hl && _hl.active) _hl.setPosition(_tpx - r * 0.28, _tpy - r * 0.3);
+                                        this.tweens.add({
+                                            targets: ball, scaleX: 1, scaleY: 1,
+                                            duration: 160, ease: 'Power2',
+                                            onComplete: () => {
+                                                if (!ball || !ball.active) return;
+                                                ball.body.setVelocity(_svx, _svy);
+                                                ball._teleporting = false;
+                                                ball._tpCooldown = this.time.now;
+                                            }
+                                        });
+                                        if (_hl && _hl.active) this.tweens.add({ targets: _hl, scaleX: 1, scaleY: 1, duration: 160, ease: 'Power2' });
+                                    }
+                                });
+                                if (_hl) this.tweens.add({ targets: _hl, scaleX: 0, scaleY: 0, duration: 160, ease: 'Power2' });
                             }
                         }
                     }
@@ -3647,7 +3721,12 @@ class LevelSelectScene extends Phaser.Scene {
                     lightTheme = !Array.isArray(parsed) && !!(parsed.lightTheme);
                     if (!Array.isArray(parsed) && parsed.targetMoney) targetMoney = parsed.targetMoney;
                     walls.forEach(w => {
-                        customWalls.push({ x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null });
+                        const _cw = { x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null };
+                        if (w.type === 'teleport' && w.partnerCol !== undefined) {
+                            _cw.targetX = GSX + w.partnerCol * D + D / 2;
+                            _cw.targetY = GSY + w.partnerRow * D + D / 2;
+                        }
+                        customWalls.push(_cw);
                     });
                 }
             } catch (e) { }
