@@ -162,7 +162,7 @@ class MainScene extends Phaser.Scene {
         this._incomeWindow = [];
         this._fpsHist = {};
 
-        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight'];
+        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight', 'silverZone'];
         this.wallHand = [
             { type: Phaser.Math.RND.pick(types), incomeValue: Phaser.Math.Between(1, 3) },
             { type: Phaser.Math.RND.pick(types), incomeValue: Phaser.Math.Between(1, 3) },
@@ -235,7 +235,7 @@ class MainScene extends Phaser.Scene {
             const D = this.BALL_R * 2;
             this.customWalls.forEach(cw => {
                 if (cw.specialType === 'zone') {
-                    this._createZone(cw.x, cw.y, D, D);
+                    this._createZone(cw.x, cw.y, D, D * 2);
                 } else if (cw.specialType === 'income') {
                     this.createWall(cw.x, cw.y, D, D, 'block', Phaser.Math.Between(1, 3));
                 } else {
@@ -547,6 +547,7 @@ class MainScene extends Phaser.Scene {
     getWallDims(type) {
         const D = this.BALL_R * 2;
         if (type === 'block') return { w: D, h: D };
+        if (type === 'silverZone') return { w: D, h: D * 2 };
         if (type === 'vertical') return { w: D, h: D * 3 };
         if (type === 'tDown' || type === 'tUp') return { w: D * 3, h: D * 2 };
         if (type === 'tLeft' || type === 'tRight') return { w: D * 2, h: D * 3 };
@@ -873,16 +874,23 @@ class MainScene extends Phaser.Scene {
                 const item = this.wallHand[i];
                 slot.bg.setInteractive({ cursor: 'pointer' });
                 const { w, h } = this.getWallDims(item.type);
-                if (['tDown', 'tUp', 'tLeft', 'tRight'].includes(item.type)) {
+                if (item.type === 'silverZone') {
+                    const x0 = slot.cx - w / 2, y0 = slot.cy - h / 2;
+                    this._drawSlotWall(slot.gfx, x0, y0, w, h, false, null, 'silver');
+                    if (slot.valTxt) slot.valTxt.setPosition(slot.cx, slot.cy + 4).setText('$/с').setTint(0xccccee);
+                } else if (['tDown', 'tUp', 'tLeft', 'tRight'].includes(item.type)) {
                     this._drawTShapeSlot(slot.gfx, slot.cx, slot.cy, item.type, item.incomeValue);
+                    if (slot.valTxt) {
+                        const bonusTxt = item.bonus ? `★${item.incomeValue}$` : `${item.incomeValue}$`;
+                        slot.valTxt.setPosition(slot.cx, slot.cy).setText(bonusTxt).setTint(item.bonus ? 0xffe033 : 0xffffff);
+                    }
                 } else {
                     const x0 = slot.cx - w / 2, y0 = slot.cy - h / 2;
                     this._drawSlotWall(slot.gfx, x0, y0, w, h, false, item.incomeValue);
-                }
-                if (slot.valTxt) {
-                    const bonusTxt = item.bonus ? `★${item.incomeValue}$` : `${item.incomeValue}$`;
-                    const bonusTint = item.bonus ? 0xffe033 : 0xffffff;
-                    slot.valTxt.setPosition(slot.cx, slot.cy).setText(bonusTxt).setTint(bonusTint);
+                    if (slot.valTxt) {
+                        const bonusTxt = item.bonus ? `★${item.incomeValue}$` : `${item.incomeValue}$`;
+                        slot.valTxt.setPosition(slot.cx, slot.cy).setText(bonusTxt).setTint(item.bonus ? 0xffe033 : 0xffffff);
+                    }
                 }
             } else {
                 slot.bg.disableInteractive();
@@ -908,10 +916,12 @@ class MainScene extends Phaser.Scene {
         });
     }
 
-    _drawSlotWall(gfx, x0, y0, w, h, skipOutline = false, incomeValue = null) {
+    _drawSlotWall(gfx, x0, y0, w, h, skipOutline = false, incomeValue = null, metalType = null) {
         const iv = incomeValue !== null ? incomeValue : 5;
         let fillTop, fillBot, outlineColor;
-        if (this.lightTheme) {
+        if (metalType === 'silver') {
+            fillTop = 0xddddee; fillBot = 0x7a7a8a; outlineColor = 0xbbbbcc;
+        } else if (this.lightTheme) {
             const t = Math.min(1, (iv - 1) / 99);
             fillTop = this._lerpColor(0xc8b0e8, 0x9966cc, t);
             fillBot = this._lerpColor(0xa890cc, 0x7744aa, t);
@@ -1101,35 +1111,76 @@ class MainScene extends Phaser.Scene {
         }
     }
 
-    _createZone(x, y, w, h) {
+    _createZone(x, y, w, h, metalType = 'gold') {
+        const isSilver = metalType === 'silver';
         const hw = w / 2, hh = h / 2;
-        const diamond = [{ x, y: y - hh }, { x: x + hw, y }, { x, y: y + hh }, { x: x - hw, y }];
+        const bev = Math.max(3, Math.round(w * 0.18));
+        // Octagonal ingot points
+        const ingot = [
+            { x: x - hw + bev, y: y - hh },
+            { x: x + hw - bev, y: y - hh },
+            { x: x + hw,       y: y - hh + bev },
+            { x: x + hw,       y: y + hh - bev },
+            { x: x + hw - bev, y: y + hh },
+            { x: x - hw + bev, y: y + hh },
+            { x: x - hw,       y: y + hh - bev },
+            { x: x - hw,       y: y - hh + bev },
+        ];
 
         const gfx = this.add.graphics().setDepth(0.5);
-        gfx.fillStyle(0xffdd00, 0.45);
-        gfx.fillPoints(diamond, true);
-        gfx.lineStyle(2, 0xffee55, 0.85);
-        gfx.strokePoints(diamond, true);
+        // Gradient: gold or silver — solid like a real ingot
+        const fillT = isSilver ? 0xe8e8f0 : 0xffe066;
+        const fillB = isSilver ? 0x7a7a8a : 0xb8800a;
+        const outlineC = isSilver ? 0xccccdd : 0xffee55;
+        gfx.fillGradientStyle(fillT, fillT, fillB, fillB, 0.97);
+        gfx.fillPoints(ingot, true);
+        // Top highlight band
+        gfx.fillStyle(0xffffff, isSilver ? 0.45 : 0.32);
+        gfx.fillRect(x - hw + bev, y - hh, w - bev * 2, Math.max(2, hh * 0.14));
+        // Bottom shadow band
+        gfx.fillStyle(0x000000, 0.35);
+        gfx.fillRect(x - hw + bev, y + hh - Math.max(2, hh * 0.18), w - bev * 2, Math.max(2, hh * 0.18));
+        // Center seam (dark + light)
+        gfx.fillStyle(0x000000, 0.4);
+        gfx.fillRect(x - hw + bev, y - 1, w - bev * 2, 1);
+        gfx.fillStyle(0xffffff, 0.35);
+        gfx.fillRect(x - hw + bev, y, w - bev * 2, 1);
+        // Outline
+        gfx.lineStyle(2, outlineC, 1);
+        gfx.strokePoints(ingot, true);
 
-        // Pulsing ring (scale-only so fade-in/out alpha doesn't conflict)
-        const ring = this.add.circle(x, y, Math.min(w, h) / 2, 0xffcc00, 0)
-            .setStrokeStyle(2.5, 0xffdd22).setAlpha(0.9).setDepth(0.55);
+        // Pulsing rect outline (replaces circle ring)
+        const ringColor = isSilver ? 0xaaaacc : 0xffdd22;
+        const ring = this.add.graphics().setDepth(0.55).setAlpha(0.9);
         this.tweens.add({
             targets: ring,
-            scale: { from: 0.05, to: 1.25 },
-            duration: 1300,
+            scaleX: { from: 0.05, to: 1.3 },
+            scaleY: { from: 0.05, to: 1.3 },
+            alpha: { from: 0.9, to: 0 },
+            duration: isSilver ? 1700 : 1300,
             repeat: -1,
-            yoyo: true,
-            ease: 'Sine.easeInOut'
+            ease: 'Sine.easeInOut',
+            onRepeat: () => {
+                ring.clear();
+                ring.lineStyle(2, ringColor, 1);
+                ring.strokePoints(ingot.map(p => ({ x: p.x - x, y: p.y - y })), true);
+            }
         });
+        ring.clear();
+        ring.lineStyle(2, ringColor, 1);
+        ring.strokePoints(ingot.map(p => ({ x: p.x - x, y: p.y - y })), true);
+        ring.setPosition(x, y);
 
-        const iconText = this.add.bitmapText(x, y, this._gf, '◆', 16).setOrigin(0.5).setDepth(0.55).setTint(0xffdd44);
+        const iconTint = isSilver ? 0xddddee : 0xffee88;
+        const iconText = this.add.bitmapText(x, y - 5, this._gf, '$', 14).setOrigin(0.5).setDepth(0.6).setTint(iconTint);
 
-        const txt = this.add.bitmapText(x, y + 10, this._gf, '...$/s', 11).setOrigin(0.5).setDepth(0.55).setVisible(false).setTint(0xffee88);
+        const txt = this.add.bitmapText(x, y + 8, this._gf, '...$/s', 10).setOrigin(0.5).setDepth(0.6).setVisible(false).setTint(iconTint);
 
         const zoneObj = {
             x, y, hw, hh, gfx, ring, iconText, txt,
             presenceSeconds: 0, incomePerSecond: 0, totalEarned: 0,
+            _metalType: metalType,
+            _incomeRate: isSilver ? 0.05 : 0.1,
             _allObjs: [gfx, ring, iconText, txt]
         };
         this.zones.push(zoneObj);
@@ -1305,10 +1356,12 @@ class MainScene extends Phaser.Scene {
                     const { w, h } = this.getWallDims(this.draggingWallType);
                     const cx = Phaser.Math.Clamp(pointer.x, this.fieldOffsetX + w / 2, this.fieldOffsetX + this.fieldSize - w / 2);
                     const cy = Phaser.Math.Clamp(pointer.y, this.fieldOffsetY + h / 2, this.fieldOffsetY + this.fieldSize - h / 2);
-                    const chk = this.checkPlacementValid(cx, cy, w, h, this.draggingWallType);
+                    const chk = this.draggingWallType === 'silverZone'
+                        ? { ok: true }
+                        : this.checkPlacementValid(cx, cy, w, h, this.draggingWallType);
                     // Tint only the outline, not the whole block
                     if (chk.ok && chk.mergeTarget) { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, 0xffee44); }
-                    else if (chk.ok) { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, 0x88ff88); }
+                    else if (chk.ok) { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, this.draggingWallType === 'silverZone' ? 0xaaaacc : 0x88ff88); }
                     else { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, 0xff4444); }
                 } else {
                     wp.clearTint ? wp.clearTint() : null;
@@ -1431,15 +1484,14 @@ class MainScene extends Phaser.Scene {
                 this._carryingFieldWall = null;
                 this._stopCarryParticles();
                 this._physicsSpeedMult = 1;
-                wall.clearTint();
                 wall.setPosition(wall._originX, wall._originY);
                 if (wall._drawMask) wall._drawMask(wall._originX, wall._originY);
                 if (wall._drawFill) wall._drawFill(wall._originX, wall._originY);
                 wall.setDepth(0);
                 if (wall._fillGfx) wall._fillGfx.setDepth(1);
-                if (wall._fillGfx) wall._fillGfx.setDepth(1);
                 if (wall._outlineGfx && wall._outlineGfx.active) { wall._outlineGfx.destroy(); wall._outlineGfx = null; }
                 if (wall.valueText) { wall.valueText.setPosition(wall._originX, wall._originY); wall.valueText.setDepth(3); }
+                this._refreshWallTexture(wall);
                 this.wallsGroup.add(wall); wall.body.updateFromGameObject();
                 this.updateUI();
             }
@@ -1471,12 +1523,24 @@ class MainScene extends Phaser.Scene {
             else if (type === 'tUp') { pmGfx.fillRoundedRect(px - _D / 2, py - h / 2, _D, _D, r); pmGfx.fillRoundedRect(px - w / 2, py - h / 2 + _D, w, _D, r); }
             else if (type === 'tLeft') { pmGfx.fillRoundedRect(px - w / 2, py - _D / 2, _D, _D, r); pmGfx.fillRoundedRect(px - w / 2 + _D, py - h / 2, _D, h, r); }
             else if (type === 'tRight') { pmGfx.fillRoundedRect(px - w / 2, py - h / 2, _D, h, r); pmGfx.fillRoundedRect(px - w / 2 + _D, py - _D / 2, _D, _D, r); }
-            else { pmGfx.fillRoundedRect(px - w / 2, py - h / 2, w, h, r); }
+            else if (type === 'silverZone') {
+                const bev = Math.max(3, Math.round(w * 0.18));
+                pmGfx.fillPoints([
+                    { x: px - w/2 + bev, y: py - h/2 }, { x: px + w/2 - bev, y: py - h/2 },
+                    { x: px + w/2, y: py - h/2 + bev }, { x: px + w/2, y: py + h/2 - bev },
+                    { x: px + w/2 - bev, y: py + h/2 }, { x: px - w/2 + bev, y: py + h/2 },
+                    { x: px - w/2, y: py + h/2 - bev }, { x: px - w/2, y: py - h/2 + bev },
+                ], true);
+            } else { pmGfx.fillRoundedRect(px - w / 2, py - h / 2, w, h, r); }
         };
         const drawPrevFill = (px, py) => {
             _prevFillGfx.clear();
-            const { top, bot } = this._incomeToColors(this.draggingIncomeValue);
-            _prevFillGfx.fillGradientStyle(top, top, bot, bot, 0.9);
+            if (type === 'silverZone') {
+                _prevFillGfx.fillGradientStyle(0xe8e8f0, 0xe8e8f0, 0x7a7a8a, 0x7a7a8a, 0.9);
+            } else {
+                const { top, bot } = this._incomeToColors(this.draggingIncomeValue);
+                _prevFillGfx.fillGradientStyle(top, top, bot, bot, 0.9);
+            }
             _prevFillGfx.fillRect(px - w / 2, py - h / 2, w, h);
         };
         drawPM(pointer.x, pointer.y);
@@ -1520,13 +1584,23 @@ class MainScene extends Phaser.Scene {
                 sdOGfx.lineTo(px + w / 2, py + _D / 2); sdOGfx.lineTo(px - w / 2 + _D, py + _D / 2);
                 sdOGfx.lineTo(px - w / 2 + _D, py + h / 2); sdOGfx.lineTo(px - w / 2, py + h / 2);
                 sdOGfx.closePath(); sdOGfx.strokePath();
+            } else if (type === 'silverZone') {
+                const bev = Math.max(3, Math.round(w * 0.18));
+                sdOGfx.beginPath();
+                sdOGfx.moveTo(px - w/2 + bev, py - h/2); sdOGfx.lineTo(px + w/2 - bev, py - h/2);
+                sdOGfx.lineTo(px + w/2, py - h/2 + bev); sdOGfx.lineTo(px + w/2, py + h/2 - bev);
+                sdOGfx.lineTo(px + w/2 - bev, py + h/2); sdOGfx.lineTo(px - w/2 + bev, py + h/2);
+                sdOGfx.lineTo(px - w/2, py + h/2 - bev); sdOGfx.lineTo(px - w/2, py - h/2 + bev);
+                sdOGfx.closePath(); sdOGfx.strokePath();
             } else { sdOGfx.strokeRoundedRect(px - w / 2, py - h / 2, w, h, 5); }
         };
         drawSDO(pointer.x, pointer.y);
         this._slotDragOutlineGfx = sdOGfx;
         this._drawSlotDragOutline = drawSDO;
 
-        this._dragIncomeText = this.add.bitmapText(pointer.x, pointer.y - h / 2 - 14, this._gf, `${item.incomeValue}$`, 20).setOrigin(0.5, 1).setDepth(11).setTint(0xffdd44);
+        this._dragIncomeText = this.add.bitmapText(pointer.x, pointer.y - h / 2 - 14, this._gf,
+            type === 'silverZone' ? '0.05$/с' : `${item.incomeValue}$`, 20)
+            .setOrigin(0.5, 1).setDepth(11).setTint(type === 'silverZone' ? 0xccccee : 0xffdd44);
 
         // dust particles for slot drag
         this._slotDragParticles = this.add.particles(pointer.x, pointer.y, 'wallDust', {
@@ -1553,6 +1627,14 @@ class MainScene extends Phaser.Scene {
         const fo = this.fieldOffsetX, fy = this.fieldOffsetY, fs = this.fieldSize;
         const cx = Phaser.Math.Clamp(x, fo + w / 2, fo + fs - w / 2);
         const cy = Phaser.Math.Clamp(y, fy + h / 2, fy + fs - h / 2);
+        if (type === 'silverZone') {
+            const D = this.BALL_R * 2;
+            this._createZone(cx, cy, D, D * 2, 'silver');
+            this.wallHand[this.draggingSlotIndex] = null;
+            this.updateSlotsUI();
+            this.playSound('place');
+            return;
+        }
         const chk = this.checkPlacementValid(cx, cy, w, h, type);
         if (!chk.ok) { this.showError(chk.reason); return; }
         if (chk.mergeTarget) {
@@ -1687,8 +1769,8 @@ class MainScene extends Phaser.Scene {
                 const newVal = Math.max(1, Math.floor(wall.incomeValue * 0.9));
                 wall.incomeValue = newVal;
                 if (wall.valueText && wall.valueText.active) wall.valueText.setText(`${newVal}$`);
-                this._refreshWallTexture(wall);
             }
+            this._refreshWallTexture(wall);
             wall._cachedRects = null;
             wall.setPosition(fx, fy);
             wall.setDepth(0);
@@ -1802,7 +1884,7 @@ class MainScene extends Phaser.Scene {
     buyWallPack() {
         if (this.money < this.wallPackCost) return;
         this.money -= this.wallPackCost; this.playSound('buy');
-        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight'];
+        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight', 'silverZone'];
         this.wallHand = [
             this._genWallItem(types),
             this._genWallItem(types),
@@ -1930,7 +2012,7 @@ class MainScene extends Phaser.Scene {
         const type = Phaser.Math.RND.pick(types);
         let incomeValue = Phaser.Math.Between(1, 3);
         let bonus = false;
-        if (withBonus && Math.random() < 0.25) {
+        if (withBonus && Math.random() < 0.25 && type !== 'silverZone') {
             const maxIncome = this._getMaxWallIncome();
             const bonusMax = Math.max(5, Math.floor(maxIncome / 2));
             incomeValue = Phaser.Math.Between(Math.max(4, Math.ceil(bonusMax * 0.4)), bonusMax);
@@ -2323,8 +2405,9 @@ class MainScene extends Phaser.Scene {
                     const _zIn = ball.x >= zone.x - zone.hw - r && ball.x <= zone.x + zone.hw + r
                         && ball.y >= zone.y - zone.hh - r && ball.y <= zone.y + zone.hh + r;
                     if (_zIn && !zone._ballsInside.has(ball)) {
-                        zone._incomeAccum = (zone._incomeAccum || 0) + 0.1;
-                        const _zt = this.add.bitmapText(zone.x, zone.y - 8, this._gf, '+0.1$/с', 14).setOrigin(0.5).setDepth(19).setAlpha(0.85).setTint(0xbbcc44);
+                        const _rate = zone._incomeRate || 0.1;
+                        zone._incomeAccum = (zone._incomeAccum || 0) + _rate;
+                        const _zt = this.add.bitmapText(zone.x, zone.y - 8, this._gf, `+${_rate}$/с`, 14).setOrigin(0.5).setDepth(19).setAlpha(0.85).setTint(zone._metalType === 'silver' ? 0xccccee : 0xbbcc44);
                         this.tweens.add({
                             targets: _zt, y: zone.y - 30, alpha: 0, duration: 800, ease: 'Power2',
                             onComplete: () => _zt.destroy()
@@ -2409,6 +2492,7 @@ class MainScene extends Phaser.Scene {
     _relocateZones() {
         if (!this.zones || !this.zones.length || !this.scene.isActive()) return;
         const count = this.zones.length;
+        const metalTypes = this.zones.map(z => z._metalType || 'gold');
         const D = this.BALL_R * 2;
         const objs = this.zones.flatMap(z => (z._allObjs || []).filter(o => o && o.active));
         this.tweens.add({
@@ -2420,7 +2504,7 @@ class MainScene extends Phaser.Scene {
                 objs.forEach(o => { try { if (o && o.active) o.destroy(); } catch (e) { } });
                 this.zones = [];
                 const positions = this._randomZonePositions(count, D);
-                positions.forEach(p => this._createZone(p.x, p.y, D, D));
+                positions.forEach((p, i) => this._createZone(p.x, p.y, D, D * 2, metalTypes[i] || 'gold'));
                 const newObjs = this.zones.flatMap(z => (z._allObjs || []).filter(o => o && o.active));
                 newObjs.forEach(o => o.setAlpha(0));
                 this.tweens.add({
