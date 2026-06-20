@@ -426,9 +426,9 @@ class MainScene extends Phaser.Scene {
         this._musicStarted = true;
         if (ctx.state === 'suspended') ctx.resume();
         this._musicGain = ctx.createGain();
-        this._musicGain.gain.value = this.muted ? 0 : 0.12;
+        this._musicGain.gain.value = this.muted ? 0 : 0.144;
         this._musicGain.connect(ctx.destination);
-        this._musicBeat = 60 / 108;
+        this._musicBeat = 60 / 80;
         this._nextMusicT = ctx.currentTime + 0.1;
         this._loopMusic();
     }
@@ -448,33 +448,68 @@ class MainScene extends Phaser.Scene {
     _loopMusic() {
         if (!this._musicStarted || !this._audioCtx) return;
         const ctx = this._audioCtx, b = this._musicBeat, t = this._nextMusicT, mg = this._musicGain;
-        const n = (f, sb, db, tp, v) => this._oscNote(ctx, mg, f, t + sb * b, db * b, tp || 'triangle', v || 0.26);
-        n(659.25, 0, 1.0); n(783.99, 1, 0.5); n(880.00, 1.5, 0.5); n(783.99, 2, 0.85); n(659.25, 3, 0.9);
-        n(523.25, 4, 1.8); n(659.25, 6, 0.8); n(587.33, 7, 0.9);
-        n(523.25, 8, 0.8); n(440.00, 9, 0.85); n(392.00, 10, 0.8); n(440.00, 11, 0.9);
-        n(392.00, 12, 1.5); n(329.63, 13.5, 0.5); n(392.00, 14, 0.85); n(329.63, 15, 0.9);
-        [0, 2].forEach(sb => n(130.81, sb, 1.85, 'sine', 0.36));
-        [4, 6].forEach(sb => n(110.00, sb, 1.85, 'sine', 0.36));
-        [8, 10].forEach(sb => n(174.61, sb, 1.85, 'sine', 0.36));
-        [12, 14].forEach(sb => n(196.00, sb, 1.85, 'sine', 0.36));
-        [[[130.81, 164.81, 196.00], 0], [[110.00, 130.81, 164.81], 4],
-        [[174.61, 220.00, 261.63], 8], [[196.00, 246.94, 293.66], 12]
-        ].forEach(([fs, sb]) => fs.forEach(f => n(f, sb, 3.85, 'sine', 0.065)));
-        for (let bar = 0; bar < 4; bar++) [0, 2].forEach(beat => {
-            const kt = t + (bar * 4 + beat) * b, kv = beat === 0 ? 0.45 : 0.28;
+
+        // Hi-hat chick
+        const hat = (sb) => {
+            const dur = 0.036, buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+            const d = buf.getChannelData(0); for (let j = 0; j < d.length; j++) d[j] = Math.random() * 2 - 1;
+            const src = ctx.createBufferSource(); src.buffer = buf;
+            const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 9000;
+            const g = ctx.createGain(); src.connect(hp); hp.connect(g); g.connect(mg);
+            const st = t + sb * b;
+            g.gain.setValueAtTime(0.13, st); g.gain.exponentialRampToValueAtTime(0.001, st + dur);
+            src.start(st); src.stop(st + dur + 0.01);
+        };
+        // Kick thump
+        const kick = (sb) => {
             const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(mg); o.type = 'sine';
-            o.frequency.setValueAtTime(155, kt); o.frequency.exponentialRampToValueAtTime(40, kt + 0.13);
-            g.gain.setValueAtTime(kv, kt); g.gain.exponentialRampToValueAtTime(0.001, kt + 0.15);
-            o.start(kt); o.stop(kt + 0.16);
+            const st = t + sb * b;
+            o.frequency.setValueAtTime(150, st); o.frequency.exponentialRampToValueAtTime(42, st + 0.14);
+            g.gain.setValueAtTime(0.50, st); g.gain.exponentialRampToValueAtTime(0.001, st + 0.17);
+            o.start(st); o.stop(st + 0.18);
+        };
+        // Bass pluck
+        const bass = (freq, sb) => {
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.connect(g); g.connect(mg); o.type = 'triangle'; o.frequency.value = freq;
+            const st = t + sb * b;
+            g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(0.34, st + 0.012);
+            g.gain.exponentialRampToValueAtTime(0.001, st + 0.55);
+            o.start(st); o.stop(st + 0.56);
+        };
+        // Piano chord stab
+        const piano = (freqs, sb, vol) => freqs.forEach(f => {
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.connect(g); g.connect(mg); o.type = 'triangle'; o.frequency.value = f;
+            const st = t + sb * b;
+            g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(vol, st + 0.008);
+            g.gain.exponentialRampToValueAtTime(vol * 0.20, st + 0.10); g.gain.exponentialRampToValueAtTime(0.001, st + 0.45);
+            o.start(st); o.stop(st + 0.46);
         });
-        for (let i = 0; i < 16; i++) {
-            const ht = t + i * b;
-            const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(mg); o.type = 'square'; o.frequency.value = 7800;
-            g.gain.setValueAtTime(0.030, ht); g.gain.exponentialRampToValueAtTime(0.001, ht + 0.05); o.start(ht); o.stop(ht + 0.055);
-            const ot = ht + b * 0.5;
-            const o2 = ctx.createOscillator(), g2 = ctx.createGain(); o2.connect(g2); g2.connect(mg); o2.type = 'square'; o2.frequency.value = 7200;
-            g2.gain.setValueAtTime(0.014, ot); g2.gain.exponentialRampToValueAtTime(0.001, ot + 0.04); o2.start(ot); o2.stop(ot + 0.044);
+
+        // ── чик чик БУМ · чик чик БУМ БУМ — every bar ──
+        for (let bar = 0; bar < 4; bar++) {
+            const B = bar * 4;
+            hat(B + 0);  hat(B + 0.5);          // чик чик
+            kick(B + 1);                          // БУМ
+            hat(B + 2);  hat(B + 2.5);          // чик чик
+            kick(B + 3); kick(B + 3.5);         // БУМ БУМ
         }
+
+        // ── Walking bass — quarter notes ──
+        //              Gm7                        C7
+        [ 98.00, 116.54, 146.83, 174.61,  164.81, 196.00, 233.08, 207.65,
+        //              Fmaj7                      Dm7
+          174.61, 220.00, 261.63, 293.66, 146.83, 174.61, 220.00, 196.00,
+        ].forEach((f, i) => bass(f, i));
+
+        // ── Piano — one stab per bar, on the half-beat ──
+        piano([233.08, 293.66, 349.23],  2.5, 0.10); // Gm7
+        piano([164.81, 196.00, 233.08],  6.5, 0.10); // C7
+        piano([220.00, 261.63, 329.63], 10.5, 0.10); // Fmaj7
+        piano([174.61, 220.00, 261.63], 14.5, 0.10); // Dm7
+
+
         const loopDur = 16 * b;
         this._nextMusicT = t + loopDur;
         this._musicTimeout = window.setTimeout(() => this._loopMusic(), Math.max(100, (this._nextMusicT - ctx.currentTime - 2 * b) * 1000));
@@ -484,7 +519,7 @@ class MainScene extends Phaser.Scene {
         this.muted = !this.muted;
         this.muteBtn.setText(this.muted ? '🔇' : '🔊');
         if (this._musicGain && this._audioCtx)
-            this._musicGain.gain.setValueAtTime(this.muted ? 0 : 0.12, this._audioCtx.currentTime);
+            this._musicGain.gain.setValueAtTime(this.muted ? 0 : 0.144, this._audioCtx.currentTime);
         if (!this.muted && !this._musicStarted) this.startMusic();
     }
 
@@ -3067,7 +3102,7 @@ class EditorScene extends Phaser.Scene {
         };
 
         const minusHit = this.add.rectangle(c2X + 12, c2Y + 14, 24, 28, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
-        this.add.bitmapText(c2X + 12, c2Y + 14, GF, '−', 18).setOrigin(0.5).setDepth(4).setTint(0xffcc44);
+        this.add.bitmapText(c2X + 12, c2Y + 14, GF, '-', 18).setOrigin(0.5).setDepth(4).setTint(0xffcc44);
         minusHit.on('pointerdown', () => {
             this.editorTargetMoney = Math.max(100, this.editorTargetMoney - steps[_stepIdx]);
             _updateTargetDisplay();
