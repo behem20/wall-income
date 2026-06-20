@@ -25,7 +25,7 @@ let _gfXmlURL = null;
     const totalH = ry + H;
     const cv = document.createElement('canvas'); cv.width = MAX_W; cv.height = totalH;
     const ctx = cv.getContext('2d'); ctx.font = FSTR; ctx.textBaseline = 'middle';
-    ctx.strokeStyle = 'rgba(0,0,0,0.72)'; ctx.lineWidth = BASE * 0.09; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.38)'; ctx.lineWidth = BASE * 0.09; ctx.lineJoin = 'round';
     for (const [ch, g] of Object.entries(glyphs)) ctx.strokeText(ch, g.x + PAD, g.y + H / 2);
     ctx.fillStyle = '#fff';
     for (const [ch, g] of Object.entries(glyphs)) ctx.fillText(ch, g.x + PAD, g.y + H / 2);
@@ -61,6 +61,32 @@ function _initGameFont(scene) {
     }
     return _GF_KEY;
 }
+
+// ── Particle colour config — edit these to customise trap / slow fx per theme ──
+const PARTICLE_CFG = {
+    trap: {
+        dark: {
+            fire1: [0xb58608, 0xaa3a16, 0xff0000, 0xd46a0d],
+            fire2: [0xc97317, 0xffc90e, 0xa62f05, 0xc20003, 0xdb5f22],
+        },
+        light: {
+            fire1: [0xff6600, 0xff2200, 0xffaa00, 0xff8800],
+            fire2: [0xffcc00, 0xff9900, 0xff4400, 0xff0000, 0xffbb33],
+        },
+    },
+    slow: {
+        dark: {
+            wall:  [0x88ccff, 0x2255dd, 0xffffff],
+            wall2: [0x00eeff, 0x0055ff, 0xaaffff, 0x4499ff],
+            ball:  [0x88ccff, 0xffffff, 0x00aaff, 0xaaddff],
+        },
+        light: {
+            wall:  [0x00aaff, 0x88eeff, 0xffffff],
+            wall2: [0x00ccff, 0x33aaff, 0xffffff, 0x88eeff],//wall2: [0x00ccff, 0x33aaff, 0xffffff, 0x88eeff],
+            ball:  [0x99ccff, 0xffffff, 0x4488ff, 0xbbddff],
+        },
+    },
+};
 
 class MainScene extends Phaser.Scene {
     constructor() { super('MainScene'); }
@@ -162,7 +188,7 @@ class MainScene extends Phaser.Scene {
         this._incomeWindow = [];
         this._fpsHist = {};
 
-        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight', 'silverZone'];
+        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight'];
         this.wallHand = [
             { type: Phaser.Math.RND.pick(types), incomeValue: Phaser.Math.Between(1, 3) },
             { type: Phaser.Math.RND.pick(types), incomeValue: Phaser.Math.Between(1, 3) },
@@ -234,8 +260,10 @@ class MainScene extends Phaser.Scene {
         if (this.customWalls && this.customWalls.length) {
             const D = this.BALL_R * 2;
             this.customWalls.forEach(cw => {
-                if (cw.specialType === 'zone') {
-                    this._createZone(cw.x, cw.y, D, D * 2);
+                if (cw.specialType === 'zone' || cw.specialType === 'silverZone') {
+                    this._createZone(cw.x, cw.y, D, D * 2, 'silver');
+                } else if (cw.specialType === 'goldZone') {
+                    this._createZone(cw.x, cw.y, D, D * 2, 'gold');
                 } else if (cw.specialType === 'income') {
                     this.createWall(cw.x, cw.y, D, D, 'block', Phaser.Math.Between(1, 3));
                 } else {
@@ -547,7 +575,7 @@ class MainScene extends Phaser.Scene {
     getWallDims(type) {
         const D = this.BALL_R * 2;
         if (type === 'block') return { w: D, h: D };
-        if (type === 'silverZone') return { w: D, h: D * 2 };
+        if (type === 'silverZone' || type === 'goldZone') return { w: D, h: D * 2 };
         if (type === 'vertical') return { w: D, h: D * 3 };
         if (type === 'tDown' || type === 'tUp') return { w: D * 3, h: D * 2 };
         if (type === 'tLeft' || type === 'tRight') return { w: D * 2, h: D * 3 };
@@ -648,7 +676,7 @@ class MainScene extends Phaser.Scene {
         // ── Right: wallet background panel ──
         panelGfx.fillStyle(this.lightTheme ? 0xf5ead0 : 0x070e16, 1);
         panelGfx.fillRoundedRect(415, 16, 330, 36, 6);
-        panelGfx.lineStyle(2.5, this.lightTheme ? 0x6b4010 : 0x1e3d6a, this.lightTheme ? 1 : 0.7);
+        panelGfx.lineStyle(2.5, this.lightTheme ? 0xd09050 : 0x1e3d6a, this.lightTheme ? 0.7 : 0.7);
         panelGfx.strokeRoundedRect(415, 16, 330, 36, 6);
         // ball icon
         panelGfx.fillStyle(this.lightTheme ? 0xee2211 : 0xf01cff, 1);
@@ -769,6 +797,10 @@ class MainScene extends Phaser.Scene {
                 const y = Phaser.Math.Between(cy - 100, cy + 100);
                 this.createWall(x, y, w, h, type, Phaser.Math.Between(1, 5));
             });
+            makeDevBtn('+100K', 628, 248, () => {
+                this.money += 100000;
+                this.updateUI();
+            });
             // ────────────────────────────────────────────────────────
         }
 
@@ -822,7 +854,9 @@ class MainScene extends Phaser.Scene {
     _drawTShapeSlot(gfx, cx, cy, type, incomeValue = null) {
         const D = this.BALL_R * 2;
         const iv = incomeValue !== null ? incomeValue : 5;
-        const outlineColor = this._incomeToColors(iv).top;
+        const outlineColor = this.lightTheme
+            ? this._lerpColor(0xff99cc, 0xff3399, Math.min(1, (iv - 1) / 99))
+            : this._incomeToColors(iv).top;
         if (type === 'tDown') {
             this._drawSlotWall(gfx, cx - D * 1.5, cy - D, D * 3, D, true, iv);
             this._drawSlotWall(gfx, cx - D / 2, cy, D, D, true, iv);
@@ -874,10 +908,12 @@ class MainScene extends Phaser.Scene {
                 const item = this.wallHand[i];
                 slot.bg.setInteractive({ cursor: 'pointer' });
                 const { w, h } = this.getWallDims(item.type);
-                if (item.type === 'silverZone') {
+                if (item.type === 'silverZone' || item.type === 'goldZone') {
                     const x0 = slot.cx - w / 2, y0 = slot.cy - h / 2;
-                    this._drawSlotWall(slot.gfx, x0, y0, w, h, false, null, 'silver');
-                    if (slot.valTxt) slot.valTxt.setPosition(slot.cx, slot.cy + 4).setText('$/с').setTint(0xccccee);
+                    const _mt = item.type === 'goldZone' ? 'gold' : 'silver';
+                    this._drawSlotWall(slot.gfx, x0, y0, w, h, false, null, _mt);
+                    const _tc = item.type === 'goldZone' ? 0xffee88 : 0xccccee;
+                    if (slot.valTxt) slot.valTxt.setPosition(slot.cx, slot.cy + 4).setText('$/с').setTint(_tc);
                 } else if (['tDown', 'tUp', 'tLeft', 'tRight'].includes(item.type)) {
                     this._drawTShapeSlot(slot.gfx, slot.cx, slot.cy, item.type, item.incomeValue);
                     if (slot.valTxt) {
@@ -921,10 +957,12 @@ class MainScene extends Phaser.Scene {
         let fillTop, fillBot, outlineColor;
         if (metalType === 'silver') {
             fillTop = 0xddddee; fillBot = 0x7a7a8a; outlineColor = 0xbbbbcc;
+        } else if (metalType === 'gold') {
+            fillTop = 0xffe066; fillBot = 0xb8800a; outlineColor = 0xffee55;
         } else if (this.lightTheme) {
             const t = Math.min(1, (iv - 1) / 99);
-            fillTop = this._lerpColor(0xf0c0d8, 0xcc5588, t);
-            fillBot = this._lerpColor(0xe0a0c0, 0xaa3366, t);
+            fillTop = this._lerpColor(0xff99cc, 0xff3399, t);
+            fillBot = this._lerpColor(0xdd77aa, 0xcc2277, t);
             outlineColor = fillTop;
         } else {
             const colors = this._incomeToColors(iv);
@@ -1060,7 +1098,7 @@ class MainScene extends Phaser.Scene {
                 const _fe = this.add.particles(wall.x, wall.y, 'luz', {
                     lifespan: 270, frequency: 40, quantity: 5, blendMode: 'NORMAL',
                     gravityY: 20, speedX: { min: 0, max: 0 }, speedY: { min: -180, max: 0 },
-                    scale: { start: 0.62, end: 0.46 }, tint: [0xb58608, 0xaa3a16, 0xff0000, 0xd46a0d],
+                    scale: { start: 0.62, end: 0.46 }, tint: this.lightTheme ? PARTICLE_CFG.trap.light.fire1 : PARTICLE_CFG.trap.dark.fire1,
                     alpha: { start: 1, end: 0.34 },
                     emitZone: [{ quantity: 32, type: 'edge', total: 32, yoyo: true, source: new Phaser.Geom.Triangle(-_hw, _hh, _hw, _hh, 0, -_hh) }]
                 }).setDepth(3.5);
@@ -1071,7 +1109,7 @@ class MainScene extends Phaser.Scene {
                     lifespan: 620, frequency: 730, quantity: 22, blendMode: 'ADD',
                     speed: { min: 20, max: Math.max(_hw, _hh) * 4.5 },
                     scale: { start: 1.1, end: 2.0 }, rotate: { start: 0, end: 360 },
-                    tint: [0xc97317, 0xffc90e, 0xa62f05, 0xc20003, 0xdb5f22],
+                    tint: this.lightTheme ? PARTICLE_CFG.trap.light.fire2 : PARTICLE_CFG.trap.dark.fire2,
                     alpha: { start: 1, end: 0 }
                 }).setDepth(3.6);
                 wall._fireEmitter2 = _fe2;
@@ -1085,11 +1123,21 @@ class MainScene extends Phaser.Scene {
                     lifespan: 270, frequency: 40, quantity: 5, blendMode: 'NORMAL',
                     gravityY: -10, speedX: { min: -80, max: 80 }, speedY: { min: -80, max: 80 },
                     scale: { start: 1.5, end: 0.23 }, rotate: { start: 0, end: 360 },
-                    tint: [0x88ccff, 0x0000ff,0xffffff],//tint: [0x88ccff, 0xffffff, 0x00aaff],
+                    tint: this.lightTheme ? PARTICLE_CFG.slow.light.wall : PARTICLE_CFG.slow.dark.wall,
                     emitZone: [{ quantity: 32, type: 'edge', total: 32, yoyo: false, source: new Phaser.Geom.Ellipse(0, 0, wall.width + 8, wall.height + 8) }]
                 }).setDepth(3.5);
                 wall._snowEmitter = _se;
                 wall.on('destroy', () => { if (_se && _se.active) _se.destroy(); });
+                if (wall._snowEmitter2) { try { wall._snowEmitter2.destroy(); } catch (e) { } }
+                const _se2 = this.add.particles(wall.x, wall.y, 'luz', {
+                    lifespan: 500, frequency: 90, quantity: 3, blendMode: 'ADD',
+                    gravityY: -25, speedX: { min: -50, max: 50 }, speedY: { min: -60, max: 10 },
+                    scale: { start: 0.9, end: 0.05 }, rotate: { start: 0, end: 360 },
+                    tint: this.lightTheme ? PARTICLE_CFG.slow.light.wall2 : PARTICLE_CFG.slow.dark.wall2,
+                    emitZone: [{ quantity: 16, type: 'edge', total: 16, yoyo: false, source: new Phaser.Geom.Ellipse(0, 0, wall.width , wall.height ) }]
+                }).setDepth(3.4);
+                wall._snowEmitter2 = _se2;
+                wall.on('destroy', () => { if (_se2 && _se2.active) _se2.destroy(); });
             }
         }
         if (wall.valueText) {
@@ -1180,7 +1228,8 @@ class MainScene extends Phaser.Scene {
             x, y, hw, hh, gfx, ring, iconText, txt,
             presenceSeconds: 0, incomePerSecond: 0, totalEarned: 0,
             _metalType: metalType,
-            _incomeRate: isSilver ? 0.05 : 0.1,
+            _hitPassive: isSilver ? 1 : 2,
+            _hitIncrement: isSilver ? 1 : 2,
             _allObjs: [gfx, ring, iconText, txt]
         };
         this.zones.push(zoneObj);
@@ -1193,11 +1242,28 @@ class MainScene extends Phaser.Scene {
         if (!this.zones || !this.zones.length || !this.scene.isActive()) return;
         let earned = 0;
         this.zones.forEach(zone => {
-            zone.incomePerSecond = Math.floor(zone._incomeAccum || 0);
+            zone.incomePerSecond = zone._hitPassive || 0;
             earned += zone.incomePerSecond;
             zone.totalEarned = (zone.totalEarned || 0) + zone.incomePerSecond;
-            const acc = zone._incomeAccum || 0;
-            zone.txt.setText(acc > 0 ? `${acc.toFixed(1)}$/s` : '...$/s');
+            zone.txt.setText(`${zone.incomePerSecond}$/s`);
+            if (zone.incomePerSecond > 0) {
+                const _isSilver = zone._metalType === 'silver';
+                const _popX = zone.x + Phaser.Math.Between(-10, 10);
+                const _popY = zone.y - zone.hh + Phaser.Math.Between(-4, 4);
+                const _tint = _isSilver ? 0xaaddff : 0xffee00;
+                const _label = `+${zone.incomePerSecond}$`;
+                const sh = this.add.bitmapText(_popX + 2, _popY + 2, this._gf, _label, 26)
+                    .setOrigin(0.5).setDepth(19).setTint(0x000000).setAlpha(0.55);
+                const t = this.add.bitmapText(_popX, _popY, this._gf, _label, 26)
+                    .setOrigin(0.5).setDepth(20).setTint(_tint);
+                this.tweens.add({
+                    targets: [t, sh], y: _popY - 46,
+                    scale: { from: 1.35, to: 1 },
+                    alpha: { from: 1, to: 0 },
+                    duration: 1050, ease: 'Power2',
+                    onComplete: () => { if (t && t.active) t.destroy(); if (sh && sh.active) sh.destroy(); }
+                });
+            }
         });
         if (this.passiveIncomeText) this.passiveIncomeText.setText(`${earned}$/с`);
         if (earned > 0) {
@@ -1281,10 +1347,12 @@ class MainScene extends Phaser.Scene {
         const illCon = this.add.container(cx, illY).setScale(1.8);
         const gfx = this.add.graphics();
         if (emoji === '🟠') {
-            gfx.fillStyle(0x00ccff, 1); gfx.fillCircle(-20, 0, 22);
-            gfx.lineStyle(3, 0x88eeff, 1); gfx.strokeCircle(-20, 0, 22);
+            const _bClr = this.lightTheme ? 0xee2211 : 0xf01cff;
+            const _bStr = this.lightTheme ? 0xff8844 : 0xf8ae0f;
+            gfx.fillStyle(_bClr, 1); gfx.fillCircle(-20, 0, 22);
+            gfx.lineStyle(3, _bStr, 1); gfx.strokeCircle(-20, 0, 22);
             gfx.fillStyle(0xffffff, 0.5); gfx.fillCircle(-28, -8, 6);
-            const plus = this.add.bitmapText(6, 0, this._gf, '+', 40).setOrigin(0, 0.5).setTint(0x00ee44);
+            const plus = this.add.bitmapText(6, 0, this._gf, '+', 40).setOrigin(0, 0.5).setTint(this.lightTheme ? 0xcc4422 : 0x00ee44);
             illCon.add([gfx, plus]);
         } else if (emoji === '🧱') {
             // 2 small blocks behind (faded = distant), 1 large block in front
@@ -1356,12 +1424,13 @@ class MainScene extends Phaser.Scene {
                     const { w, h } = this.getWallDims(this.draggingWallType);
                     const cx = Phaser.Math.Clamp(pointer.x, this.fieldOffsetX + w / 2, this.fieldOffsetX + this.fieldSize - w / 2);
                     const cy = Phaser.Math.Clamp(pointer.y, this.fieldOffsetY + h / 2, this.fieldOffsetY + this.fieldSize - h / 2);
-                    const chk = this.draggingWallType === 'silverZone'
+                    const _isZone = this.draggingWallType === 'silverZone' || this.draggingWallType === 'goldZone';
+                    const chk = _isZone
                         ? { ok: true }
                         : this.checkPlacementValid(cx, cy, w, h, this.draggingWallType);
                     // Tint only the outline, not the whole block
                     if (chk.ok && chk.mergeTarget) { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, 0xffee44); }
-                    else if (chk.ok) { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, this.draggingWallType === 'silverZone' ? 0xaaaacc : 0x88ff88); }
+                    else if (chk.ok) { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, this.draggingWallType === 'silverZone' ? 0xaaaacc : this.draggingWallType === 'goldZone' ? 0xffdd22 : 0x88ff88); }
                     else { wp.clearTint(); if (this._drawSlotDragOutline) this._drawSlotDragOutline(pointer.x, pointer.y, 0xff4444); }
                 } else {
                     wp.clearTint ? wp.clearTint() : null;
@@ -1523,7 +1592,7 @@ class MainScene extends Phaser.Scene {
             else if (type === 'tUp') { pmGfx.fillRoundedRect(px - _D / 2, py - h / 2, _D, _D, r); pmGfx.fillRoundedRect(px - w / 2, py - h / 2 + _D, w, _D, r); }
             else if (type === 'tLeft') { pmGfx.fillRoundedRect(px - w / 2, py - _D / 2, _D, _D, r); pmGfx.fillRoundedRect(px - w / 2 + _D, py - h / 2, _D, h, r); }
             else if (type === 'tRight') { pmGfx.fillRoundedRect(px - w / 2, py - h / 2, _D, h, r); pmGfx.fillRoundedRect(px - w / 2 + _D, py - _D / 2, _D, _D, r); }
-            else if (type === 'silverZone') {
+            else if (type === 'silverZone' || type === 'goldZone') {
                 const bev = Math.max(3, Math.round(w * 0.18));
                 pmGfx.fillPoints([
                     { x: px - w/2 + bev, y: py - h/2 }, { x: px + w/2 - bev, y: py - h/2 },
@@ -1537,6 +1606,13 @@ class MainScene extends Phaser.Scene {
             _prevFillGfx.clear();
             if (type === 'silverZone') {
                 _prevFillGfx.fillGradientStyle(0xe8e8f0, 0xe8e8f0, 0x7a7a8a, 0x7a7a8a, 0.9);
+            } else if (type === 'goldZone') {
+                _prevFillGfx.fillGradientStyle(0xffe066, 0xffe066, 0xb8800a, 0xb8800a, 0.9);
+            } else if (this.lightTheme) {
+                const _t = Math.min(1, (this.draggingIncomeValue - 1) / 99);
+                const _lt = this._lerpColor(0xff99cc, 0xff3399, _t);
+                const _lb = this._lerpColor(0xdd77aa, 0xcc2277, _t);
+                _prevFillGfx.fillGradientStyle(_lt, _lt, _lb, _lb, 0.9);
             } else {
                 const { top, bot } = this._incomeToColors(this.draggingIncomeValue);
                 _prevFillGfx.fillGradientStyle(top, top, bot, bot, 0.9);
@@ -1584,7 +1660,7 @@ class MainScene extends Phaser.Scene {
                 sdOGfx.lineTo(px + w / 2, py + _D / 2); sdOGfx.lineTo(px - w / 2 + _D, py + _D / 2);
                 sdOGfx.lineTo(px - w / 2 + _D, py + h / 2); sdOGfx.lineTo(px - w / 2, py + h / 2);
                 sdOGfx.closePath(); sdOGfx.strokePath();
-            } else if (type === 'silverZone') {
+            } else if (type === 'silverZone' || type === 'goldZone') {
                 const bev = Math.max(3, Math.round(w * 0.18));
                 sdOGfx.beginPath();
                 sdOGfx.moveTo(px - w/2 + bev, py - h/2); sdOGfx.lineTo(px + w/2 - bev, py - h/2);
@@ -1599,8 +1675,8 @@ class MainScene extends Phaser.Scene {
         this._drawSlotDragOutline = drawSDO;
 
         this._dragIncomeText = this.add.bitmapText(pointer.x, pointer.y - h / 2 - 14, this._gf,
-            type === 'silverZone' ? '0.05$/с' : `${item.incomeValue}$`, 20)
-            .setOrigin(0.5, 1).setDepth(11).setTint(type === 'silverZone' ? 0xccccee : 0xffdd44);
+            type === 'silverZone' ? '1$/с' : type === 'goldZone' ? '2$/с' : `${item.incomeValue}$`, 20)
+            .setOrigin(0.5, 1).setDepth(11).setTint(type === 'silverZone' ? 0xccccee : type === 'goldZone' ? 0xffee88 : 0xffdd44);
 
         // dust particles for slot drag
         this._slotDragParticles = this.add.particles(pointer.x, pointer.y, 'wallDust', {
@@ -1627,9 +1703,9 @@ class MainScene extends Phaser.Scene {
         const fo = this.fieldOffsetX, fy = this.fieldOffsetY, fs = this.fieldSize;
         const cx = Phaser.Math.Clamp(x, fo + w / 2, fo + fs - w / 2);
         const cy = Phaser.Math.Clamp(y, fy + h / 2, fy + fs - h / 2);
-        if (type === 'silverZone') {
+        if (type === 'silverZone' || type === 'goldZone') {
             const D = this.BALL_R * 2;
-            this._createZone(cx, cy, D, D * 2, 'silver');
+            this._createZone(cx, cy, D, D * 2, type === 'goldZone' ? 'gold' : 'silver');
             this.wallHand[this.draggingSlotIndex] = null;
             this.updateSlotsUI();
             this.playSound('place');
@@ -1884,7 +1960,7 @@ class MainScene extends Phaser.Scene {
     buyWallPack() {
         if (this.money < this.wallPackCost) return;
         this.money -= this.wallPackCost; this.playSound('buy');
-        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight', 'silverZone'];
+        const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight'];
         this.wallHand = [
             this._genWallItem(types),
             this._genWallItem(types),
@@ -2009,10 +2085,14 @@ class MainScene extends Phaser.Scene {
     }
 
     _genWallItem(types, withBonus = true) {
-        const type = Phaser.Math.RND.pick(types);
+        const _zr = Math.random();
+        let type;
+        if (_zr < 0.02) { type = 'goldZone'; }
+        else if (_zr < 0.06) { type = 'silverZone'; }
+        else { type = Phaser.Math.RND.pick(types); }
         let incomeValue = Phaser.Math.Between(1, 3);
         let bonus = false;
-        if (withBonus && Math.random() < 0.25 && type !== 'silverZone') {
+        if (withBonus && Math.random() < 0.25 && type !== 'silverZone' && type !== 'goldZone') {
             const maxIncome = this._getMaxWallIncome();
             const bonusMax = Math.max(5, Math.floor(maxIncome / 2));
             incomeValue = Phaser.Math.Between(Math.max(4, Math.ceil(bonusMax * 0.4)), bonusMax);
@@ -2088,7 +2168,7 @@ class MainScene extends Phaser.Scene {
         const ctx = canvas.getContext('2d');
         for (const { name, x, w, h } of layout) {
             // gray fill so vertex-tint gives darker fill than white outline
-            ctx.fillStyle = '#aaaaaa';
+            ctx.fillStyle = '#cccccc';
             if (name === 'tDown') {
                 ctx.fillRect(x, 0, w, D); ctx.fillRect(x + D, D, D, D);
             } else if (name === 'tUp') {
@@ -2137,8 +2217,8 @@ class MainScene extends Phaser.Scene {
     _setWallTint(wall, val) {
         if (this.lightTheme) {
             const t = Math.min(1, (val - 1) / 99);
-            const top = this._lerpColor(0xf0c0d8, 0xcc5588, t);
-            const bot = this._lerpColor(0xe0a0c0, 0xaa3366, t);
+            const top = this._lerpColor(0xff99cc, 0xff3399, t);
+            const bot = this._lerpColor(0xdd77aa, 0xcc2277, t);
             wall.setTint(top, top, bot, bot);
         } else {
             const { top, bot } = this._incomeToColors(val);
@@ -2409,7 +2489,7 @@ class MainScene extends Phaser.Scene {
                     speedY: { min: -45, max: 45 },
                     scale: { start: 0.75, end: 0.05 },
                     rotate: { start: 0, end: 360 },
-                    tint: [0x88ccff, 0xffffff, 0x00aaff, 0xaaddff],
+                    tint: this.lightTheme ? PARTICLE_CFG.slow.light.ball : PARTICLE_CFG.slow.dark.ball,
                     emitZone: [{
                         quantity: 8, type: 'edge', total: 8, yoyo: false,
                         source: new Phaser.Geom.Ellipse(0, 0, _br * 2 + 8, _br * 2 + 8)
@@ -2433,13 +2513,26 @@ class MainScene extends Phaser.Scene {
                     const _zIn = ball.x >= zone.x - zone.hw - r && ball.x <= zone.x + zone.hw + r
                         && ball.y >= zone.y - zone.hh - r && ball.y <= zone.y + zone.hh + r;
                     if (_zIn && !zone._ballsInside.has(ball)) {
-                        const _rate = zone._incomeRate || 0.1;
-                        zone._incomeAccum = (zone._incomeAccum || 0) + _rate;
-                        const _zt = this.add.bitmapText(zone.x, zone.y - 8, this._gf, `+${_rate}$/с`, 14).setOrigin(0.5).setDepth(19).setAlpha(0.85).setTint(zone._metalType === 'silver' ? 0xccccee : 0xbbcc44);
+                        const _isSilver = zone._metalType === 'silver';
+                        const _inc = zone._hitIncrement || (_isSilver ? 1 : 2);
+                        zone._hitPassive = (zone._hitPassive || (_isSilver ? 1 : 2)) + _inc;
+                        const _zColor = _isSilver ? 0xaaaacc : 0xffdd22;
+                        const _zt = this.add.bitmapText(zone.x, zone.y - 8, this._gf, `+${_inc}$/с`, 14).setOrigin(0.5).setDepth(19).setAlpha(0.85).setTint(_zColor);
                         this.tweens.add({
                             targets: _zt, y: zone.y - 30, alpha: 0, duration: 800, ease: 'Power2',
                             onComplete: () => _zt.destroy()
                         });
+                        const _sp = this.add.particles(0, 0, 'wallDust', {
+                            lifespan: { min: 120, max: 260 },
+                            scale: { start: 0.45, end: 0 },
+                            alpha: { start: 1, end: 0 },
+                            speed: { min: 50, max: 130 },
+                            angle: { min: -180, max: 180 },
+                            tint: [_zColor, 0xffffff, _zColor],
+                            quantity: 6, frequency: -1,
+                        }).setDepth(25);
+                        _sp.explode(6, ball.x, ball.y);
+                        this.time.delayedCall(350, () => { if (_sp && _sp.active) _sp.destroy(); });
                     }
                     if (_zIn) zone._ballsInside.add(ball); else zone._ballsInside.delete(ball);
                 });
@@ -2501,7 +2594,7 @@ class MainScene extends Phaser.Scene {
         this._wallTooltipTotal.setPosition(tx + 8, ty + 36).setVisible(true);
         const update = () => {
             if (!this._wallTooltipGfx || !this._wallTooltipGfx.visible) return;
-            this._wallTooltipIps.setText(`◆ ${(zone._incomeAccum || 0).toFixed(1)}$/с`);
+            this._wallTooltipIps.setText(`◆ ${zone._hitPassive || 0}$/с`);
             this._wallTooltipTotal.setText(`$ ${Math.round(zone.totalEarned || 0).toLocaleString()}$ всего`);
         };
         update();
@@ -2606,7 +2699,7 @@ class MainScene extends Phaser.Scene {
                 this._progressGfx.fillStyle(fc, 1);
                 this._progressGfx.fillRoundedRect(pbx, pby, fw, pbh, 6);
             }
-            this._progressGfx.lineStyle(2.5, this.lightTheme ? 0x6b4010 : 0x1e3d6a, this.lightTheme ? 1 : 0.7);
+            this._progressGfx.lineStyle(2.5, this.lightTheme ? 0xd09050 : 0x1e3d6a, this.lightTheme ? 0.7 : 0.7);
             this._progressGfx.strokeRoundedRect(pbx, pby, pbw, pbh, 6);
             this.barText.setText(`${this.totalEarned.toLocaleString()}$ / ${this.targetMoney.toLocaleString()}$`);
             if (this.totalEarned >= this.targetMoney && !this.gameWon) this.winGame();
@@ -2769,6 +2862,7 @@ class EditorScene extends Phaser.Scene {
         this.D = D; this.COLS = COLS; this.ROWS = ROWS; this.GSX = GSX; this.GSY = GSY;
         this.cells = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
         this.currentTool = 'boundary';
+        this.currentZoneType = 'silver';
         this.currentBoundaryColor = 0x888888;
         this.isPainting = false;
         this.lightTheme = false;
@@ -2914,6 +3008,34 @@ class EditorScene extends Phaser.Scene {
         });
         tY += 22 + 8;
 
+        // Zone type selector
+        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, 'ТИП ЗОНЫ', 10).setOrigin(0.5, 0).setDepth(2).setTint(0x00ddaa);
+        tY += 14;
+        const zoneTypes = [{ key: 'silver', label: 'СЕРЕБРО', color: 0xaaaacc }, { key: 'gold', label: 'ЗОЛОТО', color: 0xffdd22 }];
+        const zBtnW = Math.floor((tBtnW - 4) / 2);
+        this._zoneBtns = [];
+        zoneTypes.forEach((zt, zi) => {
+            const zbx = tBtnX + zi * (zBtnW + 4);
+            const _zby = tY;
+            const zg = this.add.graphics().setDepth(2);
+            const drawZB = (sel) => {
+                zg.clear();
+                zg.fillStyle(sel ? 0x0a1a0a : 0x050a05, 1);
+                zg.fillRoundedRect(zbx, _zby, zBtnW, 22, 5);
+                zg.lineStyle(1.5, zt.color, sel ? 1 : 0.4);
+                zg.strokeRoundedRect(zbx, _zby, zBtnW, 22, 5);
+            };
+            drawZB(zt.key === this.currentZoneType);
+            this.add.bitmapText(zbx + zBtnW / 2, _zby + 11, GF, zt.label, 11).setOrigin(0.5).setDepth(3).setTint(zt.color);
+            const zh = this.add.rectangle(zbx + zBtnW / 2, _zby + 11, zBtnW, 22, 0, 0).setInteractive({ useHandCursor: true }).setDepth(4);
+            this._zoneBtns.push({ zg, drawZB, key: zt.key });
+            zh.on('pointerdown', () => {
+                this.currentZoneType = zt.key;
+                this._zoneBtns.forEach(b => b.drawZB(b.key === zt.key));
+            });
+        });
+        tY += 22 + 8;
+
         // Legend
         this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, '× = -деньги\n❄ = замедление\n◆ = зона дохода', 11).setOrigin(0.5, 0).setDepth(2).setTint(0x888888).setCenterAlign();
         tY += 52;
@@ -2926,13 +3048,14 @@ class EditorScene extends Phaser.Scene {
         this.add.bitmapText(c2X + c2BtnW / 2, c2Y, GF, 'ЦЕЛЬ ($)', 10).setOrigin(0.5, 0).setDepth(2).setTint(0xffcc44);
         c2Y += 14;
 
+        const _targetBoxY = c2Y;
         const targetGfx = this.add.graphics().setDepth(2);
         const drawTargetBox = (focused) => {
             targetGfx.clear();
             targetGfx.fillStyle(focused ? 0x1a1400 : 0x0d0a00, 1);
-            targetGfx.fillRoundedRect(c2X, c2Y, c2BtnW, 28, 6);
+            targetGfx.fillRoundedRect(c2X, _targetBoxY, c2BtnW, 28, 6);
             targetGfx.lineStyle(2, focused ? 0xffcc44 : 0x665500, 1);
-            targetGfx.strokeRoundedRect(c2X, c2Y, c2BtnW, 28, 6);
+            targetGfx.strokeRoundedRect(c2X, _targetBoxY, c2BtnW, 28, 6);
         };
         drawTargetBox(false);
         this._targetValText = this.add.bitmapText(c2X + c2BtnW / 2, c2Y + 14, GF, '2000$', 15).setOrigin(0.5).setDepth(3).setTint(0xffcc44);
@@ -2960,6 +3083,7 @@ class EditorScene extends Phaser.Scene {
         c2Y += 32;
         this.add.bitmapText(c2X + c2BtnW / 2, c2Y, GF, 'шаг:', 10).setOrigin(0.5, 0).setDepth(2).setTint(0x888888);
         c2Y += 13;
+        const _stepBtnY = c2Y;
         const stepBtnW = Math.floor((c2BtnW - 3 * 4) / 4);
         this._stepBtns = [];
         steps.forEach((s, si) => {
@@ -2968,9 +3092,9 @@ class EditorScene extends Phaser.Scene {
             const drawSB = (sel) => {
                 sg.clear();
                 sg.fillStyle(sel ? 0x2a2000 : 0x0d0900, 1);
-                sg.fillRect(bx, c2Y, stepBtnW, 20);
+                sg.fillRect(bx, _stepBtnY, stepBtnW, 20);
                 sg.lineStyle(1.5, sel ? 0xffcc44 : 0x443300, 1);
-                sg.strokeRect(bx, c2Y, stepBtnW, 20);
+                sg.strokeRect(bx, _stepBtnY, stepBtnW, 20);
             };
             drawSB(si === 0);
             this.add.bitmapText(bx + stepBtnW / 2, c2Y + 10, GF, s >= 1000 ? (s / 1000) + 'k' : String(s), 11).setOrigin(0.5).setDepth(3).setTint(0xffcc44);
@@ -3080,6 +3204,16 @@ class EditorScene extends Phaser.Scene {
         if (!cell) return;
         const { col, row } = cell;
         if (this.currentTool === 'erase') {
+            const _ec = this.cells[row][col];
+            if (_ec && (_ec.type === 'silverZone' || _ec.type === 'goldZone') && row + 1 < this.ROWS) {
+                this.cells[row + 1][col] = null;
+            }
+            if (_ec && _ec.type === 'zoneBottom' && row > 0) {
+                const _above = this.cells[row - 1][col];
+                if (_above && (_above.type === 'silverZone' || _above.type === 'goldZone')) {
+                    this.cells[row - 1][col] = null;
+                }
+            }
             this.cells[row][col] = null;
         } else if (this.currentTool === 'boundary') {
             this.cells[row][col] = { type: 'boundary', color: this.currentBoundaryColor };
@@ -3087,6 +3221,15 @@ class EditorScene extends Phaser.Scene {
             this.cells[row][col] = { type: 'trap', damage: this.currentTrapDamage };
         } else if (this.currentTool === 'income') {
             this.cells[row][col] = { type: 'income' };
+        } else if (this.currentTool === 'zone') {
+            if (row + 1 >= this.ROWS) return;
+            const _zt = this.currentZoneType === 'gold' ? 'goldZone' : 'silverZone';
+            const _below = this.cells[row + 1][col];
+            if (_below && _below.type !== 'zoneBottom') return;
+            const _cur = this.cells[row][col];
+            if (_cur && _cur.type === 'zoneBottom') return;
+            this.cells[row][col] = { type: _zt };
+            this.cells[row + 1][col] = { type: 'zoneBottom' };
         } else {
             this.cells[row][col] = { type: this.currentTool };
         }
@@ -3106,10 +3249,18 @@ class EditorScene extends Phaser.Scene {
                     const col = cell.color || 0x888888;
                     g.fillStyle(col, 1); g.fillRect(x, y, this.D, this.D);
                     g.lineStyle(2, col, 1); g.strokeRect(x, y, this.D, this.D);
-                } else if (cell.type === 'zone') {
-                    g.fillStyle(0x00ddaa, 0.3); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
-                    g.lineStyle(2, 0x00ffcc, 0.9); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
-                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D / 2, this._gf, '◆', 13).setOrigin(0.5).setDepth(3).setTint(0x00ffcc));
+                } else if (cell.type === 'zoneBottom') {
+                    // drawn as part of the zone above — skip
+                } else if (cell.type === 'zone' || cell.type === 'silverZone') {
+                    const zh = this.D * 2 - 2;
+                    g.fillStyle(0xaaaacc, 0.25); g.fillRect(x + 1, y + 1, this.D - 2, zh);
+                    g.lineStyle(2, 0xccccee, 0.9); g.strokeRect(x + 1, y + 1, this.D - 2, zh);
+                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D, this._gf, '$', 12).setOrigin(0.5).setDepth(3).setTint(0xccccee));
+                } else if (cell.type === 'goldZone') {
+                    const zh = this.D * 2 - 2;
+                    g.fillStyle(0xffdd22, 0.25); g.fillRect(x + 1, y + 1, this.D - 2, zh);
+                    g.lineStyle(2, 0xffee55, 0.9); g.strokeRect(x + 1, y + 1, this.D - 2, zh);
+                    this._iconObjs.push(this.add.bitmapText(x + this.D / 2, y + this.D, this._gf, '$', 12).setOrigin(0.5).setDepth(3).setTint(0xffee55));
                 } else if (cell.type === 'trap') {
                     g.fillStyle(0x440000, 1); g.fillRect(x + 1, y + 1, this.D - 2, this.D - 2);
                     g.lineStyle(2, 0xff3333, 1); g.strokeRect(x + 1, y + 1, this.D - 2, this.D - 2);
@@ -3141,6 +3292,7 @@ class EditorScene extends Phaser.Scene {
             for (let c = 0; c < this.COLS; c++)
                 if (this.cells[r][c]) {
                     const _sc = this.cells[r][c];
+                    if (_sc.type === 'zoneBottom') continue;
                     const _se = { col: c, row: r, type: _sc.type };
                     if (_sc.color) _se.color = _sc.color;
                     if (_sc.damage) _se.damage = _sc.damage;
@@ -3172,6 +3324,9 @@ class EditorScene extends Phaser.Scene {
                     if (w.damage) _lc.damage = w.damage;
                     if (w.incomeValue !== undefined) _lc.incomeValue = w.incomeValue;
                     this.cells[w.row][w.col] = _lc;
+                    if ((w.type === 'silverZone' || w.type === 'goldZone' || w.type === 'zone') && w.row + 1 < this.ROWS) {
+                        this.cells[w.row + 1][w.col] = { type: 'zoneBottom' };
+                    }
                 }
             });
             if (this._drawEditorBg) this._drawEditorBg();
@@ -3186,6 +3341,7 @@ class EditorScene extends Phaser.Scene {
             for (let c = 0; c < this.COLS; c++)
                 if (this.cells[r][c]) {
                     const _tc = this.cells[r][c];
+                    if (_tc.type === 'zoneBottom') continue;
                     const _te = { col: c, row: r, type: _tc.type };
                     if (_tc.color) _te.color = _tc.color;
                     if (_tc.damage) _te.damage = _tc.damage;
@@ -3204,6 +3360,7 @@ class EditorScene extends Phaser.Scene {
             for (let c = 0; c < this.COLS; c++)
                 if (this.cells[r][c]) {
                     const _tc = this.cells[r][c];
+                    if (_tc.type === 'zoneBottom') continue;
                     customWalls.push({ x: GS_GSX + c * D + D / 2, y: GS_GSY + r * D + D / 2, specialType: _tc.type, color: _tc.color || null, damage: _tc.damage || null, incomeValue: _tc.incomeValue || null });
                 }
         this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this.levelNum, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney });
