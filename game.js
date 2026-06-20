@@ -176,12 +176,13 @@ class MainScene extends Phaser.Scene {
         this.incomeCost = 50; this.gameWon = false;
         this.draggingNewWall = false; this.draggingSlotIndex = -1;
         this.draggingWallType = null; this.draggingIncomeValue = 0;
-        this.muted = false; this._audioCtx = null; this._lastHitSound = 0; this._freezeBuffer = null;
+        this.muted = false; this._audioCtx = null; this._lastHitSound = 0; this._freezeBuffer = null; this._teleportBuffer = null;
         // load freeze.wav asynchronously via Web Audio API
         try {
             const _ctx = new (window.AudioContext || window.webkitAudioContext)();
             this._audioCtx = _ctx;
             fetch('freeze.wav').then(r => r.arrayBuffer()).then(ab => _ctx.decodeAudioData(ab)).then(buf => { this._freezeBuffer = buf; }).catch(() => { });
+            fetch('new_sound.wav').then(r => r.arrayBuffer()).then(ab => _ctx.decodeAudioData(ab)).then(buf => { this._teleportBuffer = buf; }).catch(() => { });
         } catch (e) { }
         this._musicStarted = false; this._musicGain = null; this._musicTimeout = null;
         this._physicsSpeedMult = 1;
@@ -405,18 +406,24 @@ class MainScene extends Phaser.Scene {
                 case 'freeze': { if (!this._freezeBuffer) break; const _fs = ctx.createBufferSource(); _fs.buffer = this._freezeBuffer; const _fg = ctx.createGain(); _fs.connect(_fg); _fg.connect(ctx.destination); _fg.gain.setValueAtTime(0.55, t); _fs.start(t); break; }
                 case 'trap': { for (let _pi = 0; _pi < 3; _pi++) { const _dt = _pi * 0.072, _dur = 0.09; const _buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * _dur), ctx.sampleRate); const _d = _buf.getChannelData(0); for (let _j = 0; _j < _d.length; _j++) _d[_j] = Math.random() * 2 - 1; const _src = ctx.createBufferSource(); _src.buffer = _buf; const _hi = ctx.createBiquadFilter(); _hi.type = 'highpass'; _hi.frequency.value = 3200 + _pi * 400; const _g = ctx.createGain(); _src.connect(_hi); _hi.connect(_g); _g.connect(ctx.destination); _g.gain.setValueAtTime(0.16, t + _dt); _g.gain.exponentialRampToValueAtTime(0.001, t + _dt + _dur); _src.start(t + _dt); _src.stop(t + _dt + _dur + 0.01); } break; }
                 case 'teleport': {
-                    const o1 = ctx.createOscillator(), g1 = ctx.createGain();
-                    o1.connect(g1); g1.connect(ctx.destination);
-                    o1.type = 'sine';
-                    o1.frequency.setValueAtTime(680, t); o1.frequency.exponentialRampToValueAtTime(110, t + 0.22);
-                    g1.gain.setValueAtTime(0.14, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-                    o1.start(t); o1.stop(t + 0.26);
-                    const o2 = ctx.createOscillator(), g2 = ctx.createGain();
-                    o2.connect(g2); g2.connect(ctx.destination);
-                    o2.type = 'triangle';
-                    o2.frequency.setValueAtTime(1360, t); o2.frequency.exponentialRampToValueAtTime(520, t + 0.13);
-                    g2.gain.setValueAtTime(0.07, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
-                    o2.start(t); o2.stop(t + 0.18);
+                    if (this._teleportBuffer) {
+                        const _ts = ctx.createBufferSource(); _ts.buffer = this._teleportBuffer;
+                        const _tg = ctx.createGain(); _ts.connect(_tg); _tg.connect(ctx.destination);
+                        _tg.gain.setValueAtTime(0.7, t); _ts.start(t);
+                    } else {
+                        const o1 = ctx.createOscillator(), g1 = ctx.createGain();
+                        o1.connect(g1); g1.connect(ctx.destination);
+                        o1.type = 'sine';
+                        o1.frequency.setValueAtTime(680, t); o1.frequency.exponentialRampToValueAtTime(110, t + 0.22);
+                        g1.gain.setValueAtTime(0.14, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+                        o1.start(t); o1.stop(t + 0.26);
+                        const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+                        o2.connect(g2); g2.connect(ctx.destination);
+                        o2.type = 'triangle';
+                        o2.frequency.setValueAtTime(1360, t); o2.frequency.exponentialRampToValueAtTime(520, t + 0.13);
+                        g2.gain.setValueAtTime(0.07, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
+                        o2.start(t); o2.stop(t + 0.18);
+                    }
                     break;
                 }
                 case 'bonus': { [520, 780, 1100, 1560, 2100].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(), dt = i * 0.052; o.connect(g); g.connect(ctx.destination); o.type = i < 3 ? 'sine' : 'triangle'; o.frequency.setValueAtTime(f, t + dt); o.frequency.exponentialRampToValueAtTime(f * 1.08, t + dt + 0.14); g.gain.setValueAtTime(0, t + dt); g.gain.linearRampToValueAtTime(0.1, t + dt + 0.018); g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.2); o.start(t + dt); o.stop(t + dt + 0.21); }); break; }
@@ -580,19 +587,41 @@ class MainScene extends Phaser.Scene {
         const angle = Phaser.Math.DegToRad(Phaser.Math.Between(25, 65));
         const sx = Phaser.Math.RND.pick([-1, 1]), sy = Phaser.Math.RND.pick([-1, 1]);
         ball.body.setVelocity(sx * Math.cos(angle) * 400, sy * Math.sin(angle) * 400);
+        ball._roll = 0;
+        ball._rollGfx = this.add.graphics().setDepth(2.08);
+        ball._shadow = this.add.arc(ball.x + R * 0.2, ball.y + R * 0.2, Math.round(R * 0.94))
+            .setFillStyle(this.lightTheme ? 0x220000 : 0x110011, 0.45).setDepth(1.88);
+        ball._innerGlow = this.add.arc(ball.x - R * 0.18, ball.y - R * 0.19, Math.round(R * 0.65))
+            .setFillStyle(this.lightTheme ? 0xff8888 : 0xff99ff, 0.48).setDepth(2.05);
         const _hr = Math.max(1, Math.round(R * 0.27));
         ball._highlight = this.add.arc(ball.x - R * 0.28, ball.y - R * 0.3, _hr)
             .setFillStyle(0xffffff, 0.55).setDepth(4);
-        ball.on('destroy', () => { if (ball._highlight && ball._highlight.active) ball._highlight.destroy(); });
+        ball.on('destroy', () => {
+            if (ball._highlight && ball._highlight.active) ball._highlight.destroy();
+            if (ball._shadow && ball._shadow.active) ball._shadow.destroy();
+            if (ball._innerGlow && ball._innerGlow.active) ball._innerGlow.destroy();
+            if (ball._rollGfx && ball._rollGfx.active) ball._rollGfx.destroy();
+            if (ball._burnTween) { try { ball._burnTween.stop(); } catch (e) { } }
+            if (ball._burnEmitter && ball._burnEmitter.active) ball._burnEmitter.destroy();
+        });
         this.ballsGroup.add(ball);
     }
 
     _squishBall(ball, scaleX, scaleY) {
         this.tweens.killTweensOf(ball);
+        if (ball._shadow) this.tweens.killTweensOf(ball._shadow);
+        if (ball._innerGlow) this.tweens.killTweensOf(ball._innerGlow);
         ball.setScale(1, 1);
+        const _sq = [ball];
+        if (ball._shadow && ball._shadow.active) _sq.push(ball._shadow);
+        if (ball._innerGlow && ball._innerGlow.active) _sq.push(ball._innerGlow);
         this.tweens.add({
-            targets: ball, scaleX, scaleY, duration: 70, yoyo: true, hold: 8, ease: 'Power2',
-            onComplete: () => { if (ball && ball.active) ball.setScale(1, 1); }
+            targets: _sq, scaleX, scaleY, duration: 70, yoyo: true, hold: 8, ease: 'Power2',
+            onComplete: () => {
+                if (ball && ball.active) ball.setScale(1, 1);
+                if (ball._shadow && ball._shadow.active) ball._shadow.setScale(1, 1);
+                if (ball._innerGlow && ball._innerGlow.active) ball._innerGlow.setScale(1, 1);
+            }
         });
     }
 
@@ -723,7 +752,7 @@ class MainScene extends Phaser.Scene {
         // this.add.rectangle(380, 65, 760, 130, 0x0e1a27);
 
         // subtle dot grid + wallet bg — all baked into RT before destroy
-        const _icoX = 584, _valX = 604;
+        const _icoX = 624, _valX = 644;
         const panelGfx = this.make.graphics({ add: false });
         panelGfx.fillStyle(0xffffff, 0.02);
         for (let gx = 30; gx < 760; gx += 48)
@@ -769,7 +798,7 @@ class MainScene extends Phaser.Scene {
 
         // mute button (right side, vertically centered in panel)
         this.ballCountText = this.add.bitmapText(_valX, 116, this._gf, '1 шар', 16).setOrigin(0, 0).setDepth(5).setTint(0xcce4ff);
-        this.add.bitmapText(_icoX, 136, this._gf, '⚡', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
+        this.add.bitmapText(_icoX-6, 136, this._gf, '⚡', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
         this.incomePerSecText = this.add.bitmapText(_valX, 136, this._gf, '0$/сек', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
         this.add.bitmapText(_icoX, 156, this._gf, '◆', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
         this.passiveIncomeText = this.add.bitmapText(_valX, 156, this._gf, '0$/с', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
@@ -899,9 +928,31 @@ class MainScene extends Phaser.Scene {
                 .setInteractive({ cursor: 'pointer' });
             const gfx = this.add.graphics().setDepth(2);
             const valTxt = this.add.bitmapText(cx, cy, this._gf, '', 22).setOrigin(0.5, 0.5).setDepth(3).setTint(0xffffff);
+            const hoverGfx = this.add.graphics().setDepth(3.5).setAlpha(0);
             const idx = i;
             bg.on('pointerdown', ptr => this.startWallDragFromSlot(ptr, idx));
-            bg.on('pointerover', () => { if (idx < this.wallHand.length) this.playSound('hover'); });
+            bg.on('pointerover', () => {
+                if (idx < this.wallHand.length) this.playSound('hover');
+                if (this.wallHand[idx] && !this.draggingNewWall && !this._carryingFieldWall) {
+                    const _hc = this.lightTheme ? 0xff88bb : 0x88aaff;
+                    hoverGfx.clear();
+                    hoverGfx.fillStyle(_hc, 0.09);
+                    hoverGfx.fillRoundedRect(cx - 76, cy - 76, 152, 152, 8);
+                    hoverGfx.lineStyle(2.5, _hc, 0.88);
+                    hoverGfx.strokeRoundedRect(cx - 76, cy - 76, 152, 152, 8);
+                    this.tweens.killTweensOf(hoverGfx);
+                    this.tweens.add({
+                        targets: hoverGfx, alpha: 1, duration: 110, ease: 'Sine.easeOut',
+                        onComplete: () => {
+                            this.tweens.add({ targets: hoverGfx, alpha: { from: 0.72, to: 1 }, duration: 400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+                        }
+                    });
+                }
+            });
+            bg.on('pointerout', () => {
+                this.tweens.killTweensOf(hoverGfx);
+                this.tweens.add({ targets: hoverGfx, alpha: 0, duration: 150, ease: 'Sine.easeIn', onComplete: () => hoverGfx.clear() });
+            });
             this.wallSlots.push({ bg, gfx, valTxt, cx, cy });
         }
         this.updateSlotsUI();
@@ -1080,9 +1131,9 @@ class MainScene extends Phaser.Scene {
         }
         this.tweens.add({ targets: rays, alpha: 0, duration: 320, ease: 'Power2', onComplete: () => rays.destroy() });
 
-        // 4. Main particle burst — emitter at (x,y), explode with no args = emits from emitter pos
+        // 4. Main particle burst — emitter at (0,0), explode at world coords
         const n1 = Math.max(6, Math.round(38 * Math.min(s, 1)));
-        const b1 = this.add.particles(x, y, 'wallDust', {
+        const b1 = this.add.particles(0, 0, 'wallDust', {
             lifespan: { min: 200, max: 460 }, scale: { start: 0.9 * s, end: 0 }, alpha: { start: 1, end: 0 },
             speed: { min: 35 * s, max: 120 * s }, angle: { min: 0, max: 360 },
             tint: [0xffffff, 0xffee44, 0xff88cc, 0xaaffee, 0xffaaff], quantity: n1, frequency: -1,
@@ -1094,7 +1145,7 @@ class MainScene extends Phaser.Scene {
         this.time.delayedCall(140, () => {
             if (!this.scene.isActive()) return;
             const n2 = Math.max(4, Math.round(20 * Math.min(s, 1)));
-            const b2 = this.add.particles(x, y, 'wallDust', {
+            const b2 = this.add.particles(0, 0, 'wallDust', {
                 lifespan: { min: 160, max: 340 }, scale: { start: 0.55 * s, end: 0 }, alpha: { start: 1, end: 0 },
                 speed: { min: 18 * s, max: 75 * s }, angle: { min: 0, max: 360 },
                 tint: [0xffffff, 0xffe033, 0xff88ff], quantity: n2, frequency: -1,
@@ -2453,11 +2504,29 @@ class MainScene extends Phaser.Scene {
             if (!ball.currentSpeed) ball.currentSpeed = ball.bounceSpeed;
 
             if (ball._multLabel && ball._multLabel.active) ball._multLabel.setPosition(ball.x, ball.y);
+            if (ball._shadow && ball._shadow.active) ball._shadow.setPosition(ball.x + r * 0.2, ball.y + r * 0.2);
+            if (ball._innerGlow && ball._innerGlow.active) ball._innerGlow.setPosition(ball.x - r * 0.18, ball.y - r * 0.19);
             if (ball._highlight && ball._highlight.active) ball._highlight.setPosition(ball.x - r * 0.28, ball.y - r * 0.3);
+            if (ball._rollGfx && ball._rollGfx.active) ball._rollGfx.setPosition(ball.x, ball.y).setScale(ball.scaleX, ball.scaleY);
             if (ball._teleporting) return;
 
             // emit trail particles at exact ball position
             if (ball.trail) ball.trail.explode(1, ball.x, ball.y);
+
+            // rolling cross — accumulate rotation from speed, redraw each frame
+            if (ball._rollGfx && ball._rollGfx.active) {
+                const _sp = Math.sqrt(ball.body.velocity.x ** 2 + ball.body.velocity.y ** 2);
+                ball._roll += _sp * delta / 1000 / r;
+                ball._rollGfx.setRotation(ball._roll);
+                ball._rollGfx.clear();
+                ball._rollGfx.lineStyle(2, 0xffddff, 0.52);
+                ball._rollGfx.beginPath(); ball._rollGfx.moveTo(-r * 0.72, 0); ball._rollGfx.lineTo(r * 0.72, 0); ball._rollGfx.strokePath();
+                ball._rollGfx.beginPath(); ball._rollGfx.moveTo(0, -r * 0.72); ball._rollGfx.lineTo(0, r * 0.72); ball._rollGfx.strokePath();
+                for (let _ri = 0; _ri < 4; _ri++) {
+                    ball._rollGfx.fillStyle(0xffccff, 0.68);
+                    ball._rollGfx.fillCircle(Math.cos(_ri * Math.PI / 2) * r * 0.72, Math.sin(_ri * Math.PI / 2) * r * 0.72, 2.5);
+                }
+            }
 
             // boundaries
             const _snd = () => { const now = this.time.now; if (now - this._lastHitSound > 80) { this._lastHitSound = now; this.playSound('hit'); } };
@@ -2518,11 +2587,15 @@ class MainScene extends Phaser.Scene {
                                 const _tpx = wall.teleportTarget.x, _tpy = wall.teleportTarget.y;
                                 const _svx = ball.body.velocity.x, _svy = ball.body.velocity.y;
                                 const _hl = (ball._highlight && ball._highlight.active) ? ball._highlight : null;
+                                const _sh = (ball._shadow && ball._shadow.active) ? ball._shadow : null;
+                                const _ig = (ball._innerGlow && ball._innerGlow.active) ? ball._innerGlow : null;
                                 ball._teleporting = true;
                                 ball.body.setVelocity(0, 0);
                                 this.playSound('teleport');
                                 this.tweens.killTweensOf(ball);
                                 if (_hl) this.tweens.killTweensOf(_hl);
+                                if (_sh) this.tweens.killTweensOf(_sh);
+                                if (_ig) this.tweens.killTweensOf(_ig);
                                 this.tweens.add({
                                     targets: ball, x: wall.x, y: wall.y, scaleX: 0, scaleY: 0,
                                     duration: 160, ease: 'Power2',
@@ -2530,20 +2603,32 @@ class MainScene extends Phaser.Scene {
                                         if (!ball || !ball.active) return;
                                         ball.setPosition(_tpx, _tpy);
                                         if (_hl && _hl.active) _hl.setPosition(_tpx - r * 0.28, _tpy - r * 0.3);
+                                        if (_sh && _sh.active) _sh.setPosition(_tpx + r * 0.2, _tpy + r * 0.2);
+                                        if (_ig && _ig.active) _ig.setPosition(_tpx - r * 0.18, _tpy - r * 0.19);
                                         this.tweens.add({
                                             targets: ball, scaleX: 1, scaleY: 1,
                                             duration: 160, ease: 'Power2',
                                             onComplete: () => {
                                                 if (!ball || !ball.active) return;
-                                                ball.body.setVelocity(_svx, _svy);
+                                                // Exit toward portal2 direction + small random angle to break cycles
+                                                const _speed = Math.sqrt(_svx * _svx + _svy * _svy);
+                                                const _pdx = _tpx - wall.x, _pdy = _tpy - wall.y;
+                                                const _pdist = Math.sqrt(_pdx * _pdx + _pdy * _pdy);
+                                                const _baseAngle = _pdist > 1 ? Math.atan2(_pdy, _pdx) : Math.atan2(_svy, _svx);
+                                                const _exitAngle = _baseAngle + (Math.random() - 0.5) * 0.52;
+                                                ball.body.setVelocity(Math.cos(_exitAngle) * _speed, Math.sin(_exitAngle) * _speed);
                                                 ball._teleporting = false;
                                                 ball._tpCooldown = this.time.now;
                                             }
                                         });
                                         if (_hl && _hl.active) this.tweens.add({ targets: _hl, scaleX: 1, scaleY: 1, duration: 160, ease: 'Power2' });
+                                        if (_sh && _sh.active) this.tweens.add({ targets: _sh, scaleX: 1, scaleY: 1, duration: 160, ease: 'Power2' });
+                                        if (_ig && _ig.active) this.tweens.add({ targets: _ig, scaleX: 1, scaleY: 1, duration: 160, ease: 'Power2' });
                                     }
                                 });
                                 if (_hl) this.tweens.add({ targets: _hl, scaleX: 0, scaleY: 0, duration: 160, ease: 'Power2' });
+                                if (_sh) this.tweens.add({ targets: _sh, scaleX: 0, scaleY: 0, duration: 160, ease: 'Power2' });
+                                if (_ig) this.tweens.add({ targets: _ig, scaleX: 0, scaleY: 0, duration: 160, ease: 'Power2' });
                             }
                         }
                     }
@@ -2609,6 +2694,35 @@ class MainScene extends Phaser.Scene {
                 if (wall.specialType === 'trap' && didHit && now - (wall._lastTrapSound || 0) >= 380) {
                     wall._lastTrapSound = now;
                     this.playSound('trap');
+                }
+                // Burn effect — start on first trap touch, refresh timer on each hit
+                if (wall.specialType === 'trap' && didHit) {
+                    ball._burnTime = now;
+                    if (!ball._isBurning) {
+                        ball._isBurning = true;
+                        ball._burnTween = this.tweens.addCounter({
+                            from: 0, to: 100, duration: 180, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+                            onUpdate: tw => {
+                                if (!ball || !ball.active) return;
+                                const _t = tw.getValue() / 100;
+                                ball.setFillStyle(Phaser.Display.Color.GetColor(255, Math.round(80 + 80 * (1 - _t)), 0));
+                                if (ball._innerGlow && ball._innerGlow.active) ball._innerGlow.setFillStyle(Phaser.Display.Color.GetColor(255, Math.round(120 + 80 * (1 - _t)), 0), 0.55);
+                            }
+                        });
+                        const _br = this.BALL_R;
+                        ball._burnEmitter = this.add.particles(ball.x, ball.y, 'luz', {
+                            lifespan: { min: 180, max: 380 },
+                            frequency: 28,
+                            quantity: 2,
+                            blendMode: 'ADD',
+                            gravityY: -90,
+                            speedX: { min: -28, max: 28 },
+                            speedY: { min: -55, max: -15 },
+                            scale: { start: 0.55, end: 0 },
+                            tint: this.lightTheme ? PARTICLE_CFG.trap.light.fire1 : PARTICLE_CFG.trap.dark.fire1,
+                            emitZone: [{ quantity: 4, type: 'edge', total: 4, yoyo: false, source: new Phaser.Geom.Ellipse(0, 0, _br * 2, _br * 2) }]
+                        }).setDepth(2.5);
+                    }
                 }
                 // Special wall effects (editor walls)
                 if (wall.specialType && didHit && now - (wall._lastSpecial || 0) >= 1500) {
@@ -2690,6 +2804,20 @@ class MainScene extends Phaser.Scene {
             }
             if (_isSlowed && ball._slowEmitter && ball._slowEmitter.active) {
                 ball._slowEmitter.setPosition(ball.x, ball.y);
+            }
+
+            // Burn effect lifecycle — fades out 1.5s after last trap contact
+            const _isBurning = !!(ball._burnTime && (this.time.now - ball._burnTime < 400));
+            if (!_isBurning && ball._isBurning) {
+                ball._isBurning = false;
+                if (ball._burnTween) { try { ball._burnTween.stop(); } catch (e) { } ball._burnTween = null; }
+                if (ball._burnEmitter && ball._burnEmitter.active) { ball._burnEmitter.destroy(); ball._burnEmitter = null; }
+                ball.setFillStyle(this.lightTheme ? 0xff0000 : 0xf01cff);
+                ball.setStrokeStyle(1, 0xf8ae0f);
+                if (ball._innerGlow && ball._innerGlow.active) ball._innerGlow.setFillStyle(this.lightTheme ? 0xff8888 : 0xff99ff, 0.48);
+            }
+            if (_isBurning && ball._burnEmitter && ball._burnEmitter.active) {
+                ball._burnEmitter.setPosition(ball.x, ball.y);
             }
 
             // Zone crossing detection
