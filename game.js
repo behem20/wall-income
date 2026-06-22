@@ -1,3 +1,4 @@
+
 // ── Bitmap font — atlas + Angelcode XML built, game starts after PNG blob ready ──
 const _GF_KEY = '_gf';
 let _gfPngURL = null;
@@ -257,6 +258,14 @@ class MainScene extends Phaser.Scene {
         this.setupInput();
         this.updateUI();
         this.input.once('pointerdown', () => this.startMusic());
+        // UI tour — first run only
+        try {
+            if (!localStorage.getItem('tutorial_seen')) {
+                this.time.delayedCall(250, () => {
+                    if (this.scene.isActive()) this.scene.launch('TutorialScene');
+                });
+            }
+        } catch (e) {}
         // Place any editor-defined custom walls
         if (this.customWalls && this.customWalls.length) {
             const D = this.BALL_R * 2;
@@ -285,6 +294,23 @@ class MainScene extends Phaser.Scene {
         if (this.zones && this.zones.length && !this.customWalls) this._scheduleZoneRelocation();
         // Restore saved progress if resuming
         if (this.resumeData) this._applyResumeData(this.resumeData);
+        // Mechanic hints for returning players (tutorial already seen)
+        try {
+            if (localStorage.getItem('tutorial_seen')) {
+                this.time.delayedCall(1500, () => {
+                    if (this.scene.isActive()) this._checkMechanicHints();
+                });
+            }
+        } catch (e) {}
+        // Плавное появление при старте
+        const _fadeIn = this.add.rectangle(380, 435, 760, 870, 0x000000, 1).setDepth(999);
+        this.tweens.add({ targets: _fadeIn, alpha: 0, duration: 2400, ease: 'Power2', delay: 80, onComplete: () => _fadeIn.destroy() });
+
+        // Хинт "купи меня" на уровне 1
+        this._startUpgradeHintLoop();
+        // Хинт "ставь стены" на уровне 1
+        this._startWallHintLoop();
+
         // Auto-save and stop music on scene shutdown
         this.events.once('shutdown', () => { try { if (!this.gameWon) this.saveProgress(); this.stopMusic(); } catch (e) { } });
     }
@@ -763,13 +789,15 @@ class MainScene extends Phaser.Scene {
         panelGfx.fillRoundedRect(415, 16, 330, 36, 6);
         panelGfx.lineStyle(2.5, this.lightTheme ? 0xd09050 : 0x1e3d6a, this.lightTheme ? 0.7 : 0.7);
         panelGfx.strokeRoundedRect(415, 16, 330, 36, 6);
-        // ball icon
-        panelGfx.fillStyle(this.lightTheme ? 0xee2211 : 0xf01cff, 1);
-        panelGfx.fillCircle(_icoX + 6, 124, 6);
-        panelGfx.lineStyle(1.5, this.lightTheme ? 0xff8844 : 0xf8ae0f, 1);
-        panelGfx.strokeCircle(_icoX + 6, 124, 6);
-        this.add.renderTexture(0, 0, 760, 130).setDepth(0).setOrigin(0).draw(panelGfx, 0, 0);
+        this._topPanelBg = this.add.renderTexture(0, 0, 760, 130).setDepth(0).setOrigin(0);
+        this._topPanelBg.draw(panelGfx, 0, 0);
         panelGfx.destroy();
+        // ball icon as separate object so it can be hidden independently
+        this._statsBallIcon = this.add.graphics().setDepth(5);
+        this._statsBallIcon.fillStyle(this.lightTheme ? 0xee2211 : 0xf01cff, 1);
+        this._statsBallIcon.fillCircle(_icoX + 6, 124, 6);
+        this._statsBallIcon.lineStyle(1.5, this.lightTheme ? 0xff8844 : 0xf8ae0f, 1);
+        this._statsBallIcon.strokeCircle(_icoX + 6, 124, 6);
 
         // bottom separator line
         // this.add.rectangle(380, 129, 760, 2, 0x2d55aa).setAlpha(0.7);
@@ -784,7 +812,7 @@ class MainScene extends Phaser.Scene {
         ).setOrigin(0.5, 0.5).setDepth(5).setTint(this.lightTheme ? 0xcc4488 : 0x18ee50);
         const _lvl = this.registry.get('level') || 1;
         const _barLabel = this.infiniteMode ? '∞  БЕСКОНЕЧНЫЙ РЕЖИМ' : `ЦЕЛЬ УРОВНЯ ${_lvl}`;
-        this.add.bitmapText(this._pbx + this._pbw / 2, this._pby + this._pbh + 5, this._gf, _barLabel, 22
+        this._goalLabel = this.add.bitmapText(this._pbx + this._pbw / 2, this._pby + this._pbh + 5, this._gf, _barLabel, 22
         ).setOrigin(0.5, 0).setTint(this.infiniteMode ? 0x44aaff : 0xffffff);
 
         // ── Vertical divider ──────────────────────────────────────
@@ -794,13 +822,13 @@ class MainScene extends Phaser.Scene {
 
         // money number centered in the panel
         this.moneyText = this.add.bitmapText(580, 34, this._gf, '0$', 36).setOrigin(0.5, 0.5).setDepth(5).setTint(this.lightTheme ? 0xcc4488 : 0x18ee50);
-        this.add.bitmapText(580, 58, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(0xffffff);
+        this._walletLabel = this.add.bitmapText(580, 58, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(0xffffff).setDepth(5);
 
         // mute button (right side, vertically centered in panel)
         this.ballCountText = this.add.bitmapText(_valX, 116, this._gf, '1 шар', 16).setOrigin(0, 0).setDepth(5).setTint(0xcce4ff);
-        this.add.bitmapText(_icoX-6, 136, this._gf, '⚡', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
+        this._statsIcon1 = this.add.bitmapText(_icoX-6, 136, this._gf, '⚡', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
         this.incomePerSecText = this.add.bitmapText(_valX, 136, this._gf, '0$/сек', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
-        this.add.bitmapText(_icoX, 156, this._gf, '◆', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
+        this._statsIcon2 = this.add.bitmapText(_icoX, 156, this._gf, '◆', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
         this.passiveIncomeText = this.add.bitmapText(_valX, 156, this._gf, '0$/с', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
         this._fpsDom = document.createElement('div');
         Object.assign(this._fpsDom.style, { position:'fixed', top:'6px', left:'8px', color:'#ff4444', fontSize:'18px', fontFamily:'monospace', fontWeight:'bold', zIndex:'9999', pointerEvents:'none', textShadow:'0 0 3px #000' });
@@ -901,10 +929,19 @@ class MainScene extends Phaser.Scene {
         this.buttonWallPack = this.createButton(380, this.btnY, '🧱', '+ 3 стены', this.wallPackCost, () => this.buyWallPack(), sharedBtnBg);
         this.buttonIncome = this.createButton(593, this.btnY, '⚡', '+ доход стен', this.incomeCost, () => this.buyIncomeUpgrade(), sharedBtnBg);
         this._upgradeBtnCenters = [{ cx: 167, cy: this.btnY }, { cx: 380, cy: this.btnY }, { cx: 593, cy: this.btnY }];
-        this.add.renderTexture(0, 0, 760, 870).setDepth(-1).setOrigin(0).draw(sharedBtnBg, 0, 0);
+        this._btnsBg = this.add.renderTexture(0, 0, 760, 870).setDepth(-1).setOrigin(0);
+        this._btnsBg.draw(sharedBtnBg, 0, 0);
         sharedBtnBg.destroy();
         this._scheduleUpgradeShimmer();
         this._scheduleRandomBlock();
+
+        // Группы для туториала (скрываем/показываем поэтапно)
+        const _btnObjs = (btn) => ['bg','blockBg','hoverGfx','pnlGfx','ctTxt','emTxt','plusTxt','descBg','lbTxt']
+            .map(k => btn[k]).filter(v => v && typeof v.setAlpha === 'function');
+        this._uiGroupTop    = [this._progressGfx, this.barText, this._goalLabel];
+        this._uiGroupWallet = [this._topPanelBg, this.moneyText, this._walletLabel];
+        this._uiGroupStats  = [this._statsBallIcon, this._statsIcon1, this.incomePerSecText, this._statsIcon2, this.passiveIncomeText, this.ballCountText];
+        this._uiGroupBottom = [this._btnsBg, ..._btnObjs(this.buttonBall), ..._btnObjs(this.buttonWallPack), ..._btnObjs(this.buttonIncome)];
 
         this.errorText = this.add.bitmapText(this.fieldCX, this.fieldCY, this._gf, '', 20).setOrigin(0.5).setDepth(30).setAlpha(0).setTint(0xff4444);
 
@@ -1090,6 +1127,7 @@ class MainScene extends Phaser.Scene {
     }
 
     _scheduleRandomBlock() {
+        if ((this.registry.get('level') || 1) <= 1) return;
         const delay = Phaser.Math.Between(40000, 60000);
         this.time.delayedCall(delay, () => {
             if (!this.scene.isActive() || this.gameWon) return;
@@ -1482,11 +1520,132 @@ class MainScene extends Phaser.Scene {
         this.tweens.add({ targets: label, y: y - 62, alpha: 0, duration: 1200, delay: 350, ease: 'Power1', onComplete: () => label.destroy() });
     }
 
+    _startUpgradeHintLoop() {
+        if ((this.registry.get('level') || 1) > 1) return;
+        this._upgradeHintActive = false;
+        const check = () => {
+            if (!this.scene || !this.scene.isActive() || this.gameWon) return;
+            if (this.scene.isActive('TutorialScene')) { this.time.delayedCall(3000, check); return; }
+            const canBuy = (this.money || 0) >= Math.min(this.ballCost, this.wallPackCost, this.incomeCost);
+            if (canBuy && !this._upgradeHintActive) this._showUpgradeNudge();
+            this.time.delayedCall(4500, check);
+        };
+        this.time.delayedCall(4500, check);
+    }
+
+    _showUpgradeNudge() {
+        this._upgradeHintActive = true;
+        this._nudgeHints = this._nudgeHints || [];
+
+        const costs = [this.ballCost, this.wallPackCost, this.incomeCost];
+        const centers = this._upgradeBtnCenters || [];
+        const targets = centers.filter((_, i) => (this.money || 0) >= costs[i]);
+        if (!targets.length) { this._upgradeHintActive = false; return; }
+
+        let remaining = targets.length;
+        targets.forEach(btn => {
+            const y0 = btn.cy - 118;
+            const hint = this.add.bitmapText(btn.cx, y0 - 48, this._gf, '↓ купи меня', 20)
+                .setOrigin(0.5).setDepth(36).setTint(0xffffff).setAlpha(0);
+            if (hint.postFX) hint.postFX.addGlow(0xffee22, 6, 0);
+            else if (hint.preFX) hint.preFX.addGlow(0xffee22, 6, 0);
+            this._nudgeHints.push(hint);
+
+            this.tweens.add({
+                targets: hint, alpha: 1, y: y0,
+                duration: 580, ease: 'Bounce.Out',
+                onComplete: () => {
+                    this.tweens.add({
+                        targets: hint, y: y0 - 16,
+                        duration: 260, ease: 'Cubic.easeOut', yoyo: true, repeat: 5,
+                        onComplete: () => {
+                            this.tweens.add({
+                                targets: hint, alpha: 0, duration: 260,
+                                onComplete: () => {
+                                    hint.destroy();
+                                    remaining--;
+                                    if (remaining <= 0) this._upgradeHintActive = false;
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    _hideUpgradeNudge() {
+        if (this._nudgeHints) {
+            this._nudgeHints.forEach(h => {
+                if (h && h.active) {
+                    this.tweens.killTweensOf(h);
+                    this.tweens.add({ targets: h, alpha: 0, duration: 180, onComplete: () => h.destroy() });
+                }
+            });
+            this._nudgeHints = [];
+        }
+        this._upgradeHintActive = false;
+    }
+
+    _startWallHintLoop() {
+        if ((this.registry.get('level') || 1) > 1) return;
+        const check = () => {
+            if (!this.scene || !this.scene.isActive() || this.gameWon) return;
+            if (this.scene.isActive('TutorialScene')) { this.time.delayedCall(4000, check); return; }
+            const hasWalls = this.wallHand && this.wallHand.some(w => w !== null);
+            if (hasWalls && !this._wallHintActive) this._showWallHint();
+            this.time.delayedCall(6000, check);
+        };
+        this.time.delayedCall(7000, check);
+    }
+
+    _showWallHint() {
+        this._wallHintActive = true;
+        const slotX = [167, 380, 593];
+        const sy = this.slotY || 605;
+        const validX = slotX.filter((x, i) => this.wallHand && this.wallHand[i]);
+        if (!validX.length) { this._wallHintActive = false; return; }
+
+        const cx = validX[0];
+        const arrowTop = sy - 130;
+
+        const gfx = this.add.graphics().setDepth(35).setAlpha(0);
+        gfx.fillStyle(0x88ccff, 1);
+        gfx.fillTriangle(cx - 11, arrowTop + 20, cx + 11, arrowTop + 20, cx, arrowTop);
+        gfx.lineStyle(2.5, 0x88ccff, 0.9);
+        gfx.beginPath();
+        gfx.moveTo(cx, arrowTop + 20);
+        gfx.lineTo(cx, arrowTop + 38);
+        gfx.strokePath();
+
+        const txt = this.add.bitmapText(cx, arrowTop + 44, this._gf, 'СТАВЬ СТЕНЫ', 16)
+            .setOrigin(0.5, 0).setDepth(36).setTint(0x88ccff).setAlpha(0);
+        if (txt.postFX) txt.postFX.addGlow(0x4488ff, 4, 0);
+
+        this.tweens.add({
+            targets: [gfx, txt], alpha: 1, duration: 320,
+            onComplete: () => {
+                this.tweens.add({
+                    targets: txt, y: arrowTop + 44 - 12,
+                    duration: 370, yoyo: true, repeat: 5, ease: 'Sine.easeInOut',
+                    onComplete: () => {
+                        this.tweens.add({
+                            targets: [gfx, txt], alpha: 0, duration: 300,
+                            onComplete: () => { gfx.destroy(); txt.destroy(); this._wallHintActive = false; }
+                        });
+                    }
+                });
+            }
+        });
+    }
+
     _scheduleUpgradeShimmer() {
         const delay = Phaser.Math.Between(1600, 4200);
         this.time.delayedCall(delay, () => {
             if (!this.scene.isActive() || !this._upgradeBtnCenters) return;
-            this._doUpgradeShimmer(Phaser.Math.RND.pick(this._upgradeBtnCenters));
+            if (!this.scene.isActive('TutorialScene')) {
+                this._doUpgradeShimmer(Phaser.Math.RND.pick(this._upgradeBtnCenters));
+            }
             this._scheduleUpgradeShimmer();
         });
     }
@@ -1573,20 +1732,20 @@ class MainScene extends Phaser.Scene {
 
         const lbTxt = this.add.bitmapText(cx, descY, this._gf, label, 21).setOrigin(0.5, 0.5).setTint(0xffffff);
 
-        // hover highlight — bright glow border + white tint, only when affordable
-        const hoverGfx = this.add.graphics();
-        hoverGfx.fillStyle(0xffffff, 0.09);
-        hoverGfx.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
-        hoverGfx.lineStyle(2, 0x44ff88, 0.9);
-        hoverGfx.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
-        hoverGfx.setAlpha(0);
+        // hover highlight — drawn on demand so it's blank when revealed by tutorial
+        const hoverGfx = this.add.graphics().setAlpha(0);
 
         bg._cost = initCost;
         bg.on('pointerover', () => {
             this.playSound('hover');
+            hoverGfx.clear();
+            hoverGfx.fillStyle(0xffffff, 0.09);
+            hoverGfx.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+            hoverGfx.lineStyle(2, 0x44ff88, 0.9);
+            hoverGfx.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
             hoverGfx.setAlpha(1);
         });
-        bg.on('pointerout', () => hoverGfx.setAlpha(0));
+        bg.on('pointerout', () => { hoverGfx.setAlpha(0); hoverGfx.clear(); });
         bg.on('pointerdown', callback);
 
         return { bg, blockBg, hoverGfx, pnlGfx, ctTxt, emTxt: illCon, plusTxt: null, descBg, lbTxt, level: 0 };
@@ -2117,8 +2276,19 @@ class MainScene extends Phaser.Scene {
         this.time.delayedCall(900, () => { if (burst && burst.active) burst.destroy(); });
     }
 
+    _showNotEnoughMoney(cx) {
+        this.playSound('error');
+        const lbl = this.add.bitmapText(cx, (this.btnY || 790) - 90, this._gf, 'накопи долларов!', 18)
+            .setOrigin(0.5).setDepth(36).setTint(0xff6644).setAlpha(0);
+        if (lbl.postFX) lbl.postFX.addGlow(0xff4422, 4, 0);
+        else if (lbl.preFX) lbl.preFX.addGlow(0xff4422, 4, 0);
+        this.tweens.add({ targets: lbl, alpha: 1, y: (this.btnY || 790) - 104, duration: 250, ease: 'Back.Out',
+            onComplete: () => this.tweens.add({ targets: lbl, alpha: 0, duration: 350, delay: 900, onComplete: () => lbl.destroy() })
+        });
+    }
+
     buyBall() {
-        if (this.money < this.ballCost) return;
+        if (this.money < this.ballCost) { this._showNotEnoughMoney(167); return; }
         this.money -= this.ballCost;
         this.buttonBall.level = (this.buttonBall.level || 0) + 1;
         const _bt = [20, 200, 800, 2000, 4000, 8000, 12000, 16000, 24000, 28000, 32000];
@@ -2133,6 +2303,7 @@ class MainScene extends Phaser.Scene {
         }
         this._flashPurchase(167, this.btnY);
         this.time.delayedCall(80, () => { this._playSpawnFlash(167, this.btnY, 0.85); });
+        this._hideUpgradeNudge();
         this.updateUI();
     }
 
@@ -2151,7 +2322,7 @@ class MainScene extends Phaser.Scene {
     }
 
     buyWallPack() {
-        if (this.money < this.wallPackCost) return;
+        if (this.money < this.wallPackCost) { this._showNotEnoughMoney(380); return; }
         this.money -= this.wallPackCost; this.playSound('buy');
         const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight'];
         this.wallHand = [
@@ -2177,11 +2348,12 @@ class MainScene extends Phaser.Scene {
         this.wallPackCost = _wt[Math.min(this.buttonWallPack.level, _wt.length - 1)];
         this._flashPurchase(380, this.btnY);
         this.time.delayedCall(80, () => { this._playSpawnFlash(380, this.btnY, 0.85); });
+        this._hideUpgradeNudge();
         this.updateSlotsUI(); this.updateUI();
     }
 
     buyIncomeUpgrade() {
-        if (this.money < this.incomeCost) return;
+        if (this.money < this.incomeCost) { this._showNotEnoughMoney(593); return; }
         this.money -= this.incomeCost; this.playSound('buy');
         const slotOldVals = this.wallHand.map(item => item ? item.incomeValue : null);
         this.wallsGroup.children.iterate(wall => {
@@ -2200,12 +2372,138 @@ class MainScene extends Phaser.Scene {
         this.incomeCost = _it[Math.min(this.buttonIncome.level, _it.length - 1)];
         this._flashPurchase(593, this.btnY);
         this.time.delayedCall(80, () => { this._playSpawnFlash(593, this.btnY, 0.85); });
+        this._hideUpgradeNudge();
         this.updateSlotsUI(); this.updateUI();
         this.wallSlots.forEach((slot, i) => {
             const item = this.wallHand[i];
             const oldVal = slotOldVals[i];
             if (item && oldVal !== null) this._animateSlotIncomeUpgrade(slot, oldVal, item.incomeValue);
         });
+    }
+
+    _checkMechanicHints() {
+        if (!this.customWalls || !this.customWalls.length) return;
+        const seenTypes = new Set();
+        this.customWalls.forEach(cw => {
+            if (!cw.specialType || cw.specialType === 'boundary' || cw.specialType === 'static') return;
+            const key = (cw.specialType === 'silverZone' || cw.specialType === 'zone') ? 'zone' : cw.specialType;
+            seenTypes.add(key);
+        });
+        const HINTS = {
+            zone:     { icon: '🥈', title: 'СЕРЕБРЯНЫЙ СЛИТОК', text: 'Даёт пассивный доход!\nКаждый удар мяча\nувеличивает его доход\nв секунду навсегда.',   color: 0xaaddff },
+            goldZone: { icon: '🥇', title: 'ЗОЛОТОЙ СЛИТОК',   text: 'Как серебряный,\nно приносит в 2 раза\nбольше за каждый удар!',            color: 0xffee00 },
+            slow:     { icon: '❄', title: 'ЗАМОРОЗКА',       text: 'Ледяная зона замедляет\nмяч. Осторожно —\nиз неё сложнее выбраться!',       color: 0x44ccff },
+            trap:     { icon: '🔥', title: 'ЛОВУШКА',        text: 'Опасно! При попадании\nв ловушку ты теряешь\nчасть заработанных $!',          color: 0xff4422 },
+            teleport: { icon: '🌀', title: 'ТЕЛЕПОРТ',       text: 'Парные порталы:\nмяч влетает в один —\nвылетает из другого!',               color: 0xcc44ff },
+            income:   { icon: '⚡', title: 'ДОХОДНЫЙ БЛОК',  text: 'Даёт пассивный доход!\nЧем чаще мяч бьёт — тем\nбольше доход в секунду.\nСеребро: +1$/сек за касание\nЗолото: +2$/сек за касание',  color: 0xffee44 },
+        };
+        const ORDER = ['zone', 'goldZone', 'slow', 'trap', 'teleport'];
+        const toShow = ORDER.filter(t => {
+            if (!seenTypes.has(t)) return false;
+            try { return !localStorage.getItem('hint_seen_' + t); } catch (e) { return false; }
+        });
+        if (!toShow.length) return;
+        const showNext = (i) => {
+            if (i >= toShow.length || !this.scene.isActive()) return;
+            const data = HINTS[toShow[i]];
+            if (!data) { showNext(i + 1); return; }
+            try { localStorage.setItem('hint_seen_' + toShow[i], '1'); } catch (e) {}
+            this._showMechanicModal(data, () => this.time.delayedCall(350, () => showNext(i + 1)));
+        };
+        showNext(0);
+    }
+
+    _scheduleStatsHint(statsGroup) {
+        const delay = Phaser.Math.Between(5000, 10000);
+        this.time.delayedCall(delay, () => {
+            if (!this.scene || !this.scene.isActive()) return;
+            if (statsGroup) {
+                statsGroup.forEach(o => {
+                    if (!o) return;
+                    this.tweens.add({ targets: o, alpha: 1, duration: 500 });
+                });
+            }
+            this._showStatsBubble();
+        });
+    }
+
+    _showStatsBubble() {
+        const BW = 250, BH = 90;
+        const bx = 760 - BW - 8, by = 100;
+        const gfx = this.add.graphics().setDepth(50).setAlpha(0);
+        gfx.fillStyle(0x060c1a, 0.97); gfx.fillRoundedRect(bx, by, BW, BH, 10);
+        gfx.lineStyle(2, 0x44ffaa, 0.9); gfx.strokeRoundedRect(bx, by, BW, BH, 10);
+        const title = this.add.bitmapText(bx + BW / 2, by + 9, this._gf, 'СТАТИСТИКА', 18)
+            .setOrigin(0.5, 0).setDepth(51).setTint(0x44ffaa).setAlpha(0);
+        const body = this.add.bitmapText(bx + 10, by + 34, this._gf,
+            'мячей на поле\n⚡ доход от ударов / сек\n◆ пасс. доход блоков / сек', 13)
+            .setOrigin(0, 0).setDepth(51).setTint(0xbbccff).setAlpha(0);
+        const items = [gfx, title, body];
+        this.tweens.add({
+            targets: items, alpha: 1, duration: 400,
+            onComplete: () => {
+                this.time.delayedCall(5500, () => {
+                    if (!this.scene || !this.scene.isActive()) return;
+                    this.tweens.add({
+                        targets: items, alpha: 0, duration: 500,
+                        onComplete: () => items.forEach(o => o.destroy())
+                    });
+                });
+            }
+        });
+    }
+
+    _showMechanicModal(data, onClose) {
+        const W = 760, H = 870;
+        const MW = 320, MH = 252, MX = W / 2, MY = H / 2;
+        const objs = [];
+        const cleanup = () => objs.forEach(o => { if (o && o.active) o.destroy(); });
+
+        const blocker = this.add.rectangle(MX, MY, W, H, 0x000000, 0.72).setDepth(200).setInteractive();
+        objs.push(blocker);
+
+        const cardGfx = this.add.graphics().setDepth(201);
+        cardGfx.fillStyle(0x060c1a, 0.98);
+        cardGfx.fillRoundedRect(MX - MW / 2, MY - MH / 2, MW, MH, 14);
+        cardGfx.lineStyle(3, data.color, 1);
+        cardGfx.strokeRoundedRect(MX - MW / 2, MY - MH / 2, MW, MH, 14);
+        cardGfx.fillStyle(data.color, 0.12);
+        cardGfx.fillRect(MX - MW / 2 + 3, MY - MH / 2 + 3, MW - 6, 50);
+        objs.push(cardGfx);
+
+        const iconTitle = this.add.bitmapText(MX, MY - MH / 2 + 28, this._gf, data.icon + '  ' + data.title, 22)
+            .setOrigin(0.5, 0.5).setDepth(202).setTint(data.color);
+        objs.push(iconTitle);
+
+        const bodyTxt = this.add.bitmapText(MX - MW / 2 + 18, MY - MH / 2 + 66, this._gf, data.text, 18)
+            .setOrigin(0, 0).setDepth(202).setTint(0xccddff).setMaxWidth(MW - 36);
+        objs.push(bodyTxt);
+
+        const btnW = 144, btnH = 36, btnX = MX, btnY = MY + MH / 2 - 26;
+        const btnGfx = this.add.graphics().setDepth(202);
+        const drawOkBtn = (hov) => {
+            btnGfx.clear();
+            btnGfx.fillStyle(hov ? 0x1a3a1a : 0x0d1e0d, 0.97);
+            btnGfx.fillRoundedRect(btnX - btnW / 2, btnY - btnH / 2, btnW, btnH, 8);
+            btnGfx.lineStyle(hov ? 2.5 : 2, data.color, hov ? 1 : 0.85);
+            btnGfx.strokeRoundedRect(btnX - btnW / 2, btnY - btnH / 2, btnW, btnH, 8);
+        };
+        drawOkBtn(false);
+        objs.push(btnGfx);
+
+        const btnTxt = this.add.bitmapText(btnX, btnY, this._gf, 'ПОНЯТНО!', 20)
+            .setOrigin(0.5, 0.5).setDepth(203).setTint(data.color);
+        objs.push(btnTxt);
+
+        const btnHit = this.add.rectangle(btnX, btnY, btnW, btnH, 0, 0)
+            .setInteractive({ useHandCursor: true }).setDepth(204);
+        btnHit.on('pointerover', () => drawOkBtn(true));
+        btnHit.on('pointerout',  () => drawOkBtn(false));
+        btnHit.on('pointerdown', () => { cleanup(); if (onClose) onClose(); });
+        objs.push(btnHit);
+
+        objs.forEach(o => { if (o && typeof o.setAlpha === 'function') o.setAlpha(0); });
+        this.tweens.add({ targets: objs.filter(o => o && typeof o.setAlpha === 'function'), alpha: 1, duration: 200, ease: 'Sine.easeOut' });
     }
 
     _fireworkAt(x, y) {
@@ -2280,8 +2578,9 @@ class MainScene extends Phaser.Scene {
     _genWallItem(types, withBonus = true) {
         const _zr = Math.random();
         let type;
-        if (_zr < 0.02) { type = 'goldZone'; }
-        else if (_zr < 0.06) { type = 'silverZone'; }
+        const _lvl = this.registry.get('level') || 1;
+        if (_lvl > 1 && _zr < 0.02) { type = 'goldZone'; }
+        else if (_lvl > 1 && _zr < 0.06) { type = 'silverZone'; }
         else { type = Phaser.Math.RND.pick(types); }
         let incomeValue = Phaser.Math.Between(1, 3);
         let bonus = false;
@@ -3083,6 +3382,329 @@ class MainScene extends Phaser.Scene {
     }
 }
 
+class TutorialScene extends Phaser.Scene {
+    constructor() { super('TutorialScene'); }
+    preload() { _preloadGameFont(this); }
+
+    create() {
+        const W = 760, H = 870;
+        this._gf = _initGameFont(this);
+        this._step = 0;
+        this._startUpgradeLvl = 0;
+        this._arrowOff = 0;
+
+        this._blocker = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0).setDepth(99).setInteractive();
+
+        // Скрываем UI-группы MainScene — будем открывать пошагово
+        this._uiGroups = {};
+        const _ms = this.scene.get('MainScene');
+        const _hideGroup = (key, arr) => {
+            if (!arr) return;
+            this._uiGroups[key] = arr;
+            arr.forEach(o => o && o.setAlpha(0));
+        };
+        _hideGroup('top',    _ms && _ms._uiGroupTop);
+        _hideGroup('wallet', _ms && _ms._uiGroupWallet);
+        _hideGroup('stats',  _ms && _ms._uiGroupStats);
+        _hideGroup('bottom', _ms && _ms._uiGroupBottom);
+
+        this._steps = [
+            {
+                rect: { x: 7, y: 101, w: 746, h: 570 },
+                title: 'ИГРОВОЕ ПОЛЕ',
+                text: 'Перетащи карточку\nна поле — поставь\nсвой первый блок!\nМяч ударит стену → +1$',
+                bubX: 580, bubY: 800,
+                interactive: 'place_wall'
+            },
+            {
+                rect: { x: 413, y: 14, w: 332, h: 52 },
+                title: 'КОШЕЛЁК',
+                text: 'Деньги которые можно\nтратить на стены\nи улучшения.',
+                bubX: 200, bubY: 55,
+                unlocks: ['wallet'],
+                pulse: 'wallet'
+            },
+            {
+                // Скрытый шаг — игра идёт, ждём 20$
+                interactive: 'wait_coins'
+            },
+            {
+                rect: { x: 62, y: 708, w: 636, h: 148 },
+                title: 'АПГРЕЙДЫ',
+                text: 'Долларов хватает!\nНажми кнопку внизу —\nкупи первый апгрейд!',
+                bubX: 380, bubY: 605,
+                interactive: 'upgrade',
+                unlocks: ['bottom']
+            },
+            {
+                rect: { x: 18, y: 14, w: 360, h: 62 },
+                title: 'ЦЕЛЬ УРОВНЯ',
+                text: 'Заработай нужную\nсумму — и уровень\nбудет пройден!',
+                bubX: 245, bubY: 205,
+                unlocks: ['top']
+            }
+        ];
+
+        this._spotGfx  = this.add.graphics().setDepth(101);
+        this._arrowGfx = this.add.graphics().setDepth(101.5);
+        this._bubbleBg = this.add.graphics().setDepth(102);
+        this._titleTxt = this.add.bitmapText(0, 0, this._gf, '', 22).setDepth(103).setTint(0x44ffaa).setOrigin(0.5, 0);
+        this._bodyTxt  = this.add.bitmapText(0, 0, this._gf, '', 16).setDepth(103).setTint(0xbbccff).setOrigin(0, 0);
+        this._stepTxt  = this.add.bitmapText(W / 2, H - 12, this._gf, '', 14).setDepth(103).setTint(0x445566).setOrigin(0.5, 1);
+
+        this._btnGfx = this.add.graphics().setDepth(104);
+        this._btnTxt = this.add.bitmapText(0, 0, this._gf, '', 19).setDepth(105).setTint(0x44ffaa).setOrigin(0.5, 0.5);
+        this._btnHit = this.add.rectangle(0, 0, 158, 34, 0, 0).setInteractive({ useHandCursor: true }).setDepth(106);
+        this._btnHit.on('pointerdown', () => this._advance());
+        this._btnHit.on('pointerover', () => this._drawBtn(true));
+        this._btnHit.on('pointerout',  () => this._drawBtn(false));
+
+        // Skip button
+        const skipGfx = this.add.graphics().setDepth(107);
+        skipGfx.fillStyle(0x0d1f35, 0.95); skipGfx.fillRoundedRect(648, 8, 104, 32, 8);
+        skipGfx.lineStyle(1.5, 0x446688, 1); skipGfx.strokeRoundedRect(648, 8, 104, 32, 8);
+        this.add.bitmapText(700, 24, this._gf, 'ПРОПУСТИТЬ', 13).setOrigin(0.5).setDepth(108).setTint(0x7799bb);
+        const skipHit = this.add.rectangle(700, 24, 104, 32, 0, 0).setInteractive({ useHandCursor: true }).setDepth(109);
+        skipHit.on('pointerdown', () => this._finish());
+
+        this._showStep(0);
+    }
+
+    _unlock(keys) {
+        (Array.isArray(keys) ? keys : [keys]).forEach(key => {
+            const arr = this._uiGroups[key];
+            if (!arr) return;
+            arr.forEach(o => {
+                if (!o) return;
+                this.tweens.add({ targets: o, alpha: 1, duration: 450 });
+            });
+        });
+    }
+
+    update() {
+        const s = this._steps[this._step];
+        if (!s || !s.interactive) return;
+        const m = this.scene.get('MainScene');
+        if (!m || !m.scene || !m.scene.isActive()) return;
+
+        if (s.interactive === 'place_wall') {
+            this._arrowOff = (this._arrowOff + 0.9) % 1000;
+            this._drawDragArrow(this._arrowOff);
+            if ((m.placedWalls || 0) > 0) this._advance();
+        } else if (s.interactive === 'wait_coins') {
+            const money = m.money || 0;
+            if (this._bodyTxt) this._bodyTxt.setText(`зарабатывай доллары — ${Math.floor(Math.min(money, 20))}/20$`);
+            if (money >= 20) this._advance();
+        } else if (s.interactive === 'upgrade') {
+            const lvl = (m.buttonBall ? m.buttonBall.level || 0 : 0) +
+                        (m.buttonWallPack ? m.buttonWallPack.level || 0 : 0) +
+                        (m.buttonIncome ? m.buttonIncome.level || 0 : 0);
+            if (lvl > this._startUpgradeLvl) this._advance();
+        }
+    }
+
+    _showStep(idx) {
+        const W = 760, H = 870;
+        const s = this._steps[idx];
+        const _bubObjs = [this._spotGfx, this._bubbleBg, this._titleTxt, this._bodyTxt, this._btnGfx, this._btnTxt];
+        _bubObjs.forEach(o => { if (o) { this.tweens.killTweensOf(o); o.setAlpha(0); } });
+        this._arrowGfx.clear();
+        if (s.unlocks) this._unlock(s.unlocks);
+
+        // Скрытый шаг wait_coins — прогресс справа от кошелька, с пульсом
+        if (s.interactive === 'wait_coins') {
+            const msWait = this.scene.get('MainScene');
+            if (msWait && msWait._walletLabel) {
+                this.tweens.killTweensOf(msWait._walletLabel);
+                msWait._walletLabel.setScale(1).setAlpha(1);
+            }
+            this._spotGfx.clear();
+            this._bubbleBg.clear();
+            this._btnGfx.clear(); this._btnTxt.setText('');
+            this._btnHit.disableInteractive().setPosition(-500, -500);
+            this._blocker.disableInteractive();
+            this._setTimeScale(1);
+            this._stepTxt.setText('');
+
+            // Compact display to the LEFT of КОШЕЛЁК (left half x=0-414 is empty at this step)
+            const wx = 200, wy = 34;
+            this._titleTxt.setFontSize(14).setPosition(wx, wy).setText('СТАВЬ СТЕНЫ').setTint(0xffcc44);
+            this._bodyTxt.setFontSize(13).setOrigin(0.5, 0).setPosition(wx, wy + 18).setText('зарабатывай доллары — 0/20$').setTint(0x44ffcc).setMaxWidth(0);
+
+            this.tweens.add({
+                targets: [this._titleTxt, this._bodyTxt], alpha: 1, duration: 350, ease: 'Power1',
+                onComplete: () => {
+                    this.tweens.add({
+                        targets: [this._titleTxt, this._bodyTxt],
+                        scaleX: 1.12, scaleY: 1.12,
+                        duration: 520, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+                    });
+                }
+            });
+            return;
+        }
+
+        const PAD = 10;
+        const rx = s.rect.x - PAD, ry = s.rect.y - PAD;
+        const rw = s.rect.w + PAD * 2, rh = s.rect.h + PAD * 2;
+
+        this._spotGfx.clear();
+
+        const BW = 268;
+        const lineCount = (s.text || '').split('\n').length;
+        const BH = 52 + lineCount * 26 + 56;
+        const bx = Phaser.Math.Clamp(s.bubX - BW / 2, 8, W - BW - 8);
+        const by = Phaser.Math.Clamp(s.bubY - BH / 2, 8, H - BH - 8);
+
+        this._bubbleBg.clear();
+        this._bubbleBg.fillStyle(0x060c1a, 0.97);
+        this._bubbleBg.fillRoundedRect(bx, by, BW, BH, 10);
+        this._bubbleBg.lineStyle(2, 0x44ffaa, 0.88);
+        this._bubbleBg.strokeRoundedRect(bx, by, BW, BH, 10);
+
+        this._titleTxt.setFontSize(22).setPosition(bx + BW / 2, by + 12).setText(s.title || '').setTint(0x44ffaa).setScale(1);
+        this._bodyTxt.setFontSize(16).setOrigin(0, 0).setTint(0xbbccff).setPosition(bx + 13, by + 41).setText(s.text || '').setMaxWidth(BW - 26).setScale(1);
+
+        const hasBtn = !s.interactive;
+        this._btnGfx.setVisible(hasBtn);
+        this._btnTxt.setVisible(hasBtn);
+        if (hasBtn) {
+            this._btnHit.setInteractive({ useHandCursor: true });
+            const isLast = idx === this._steps.length - 1;
+            const btnX = bx + BW / 2, btnY = by + BH - 20;
+            this._btnTxt.setPosition(btnX, btnY).setText(isLast ? 'НАЧАТЬ! ▶' : 'ДАЛЕЕ →');
+            this._btnHit.setPosition(btnX, btnY).setSize(158, 34);
+            this._drawBtn(false);
+        } else {
+            this._btnHit.disableInteractive().setPosition(-500, -500);
+        }
+
+        if (s.interactive === 'upgrade') {
+            const m = this.scene.get('MainScene');
+            this._startUpgradeLvl = m ? ((m.buttonBall ? m.buttonBall.level || 0 : 0) +
+                                         (m.buttonWallPack ? m.buttonWallPack.level || 0 : 0) +
+                                         (m.buttonIncome ? m.buttonIncome.level || 0 : 0)) : 0;
+            if (m && typeof m._showUpgradeNudge === 'function' && !m._upgradeHintActive) {
+                const canBuy = (m.money || 0) >= Math.min(m.ballCost, m.wallPackCost, m.incomeCost);
+                if (canBuy) this.time.delayedCall(600, () => {
+                    if (m.scene && m.scene.isActive() && !m._upgradeHintActive) m._showUpgradeNudge();
+                });
+            }
+        }
+
+        if (s.interactive) {
+            this._blocker.disableInteractive();
+            this._setTimeScale(s.interactive === 'place_wall' ? 0.5 : 1);
+        } else {
+            this._blocker.setInteractive();
+            this._setTimeScale(1);
+        }
+
+        const visSteps = this._steps.filter(st => st.interactive !== 'wait_coins');
+        const visIdx = visSteps.indexOf(s);
+        this._stepTxt.setTint(0x445566).setText(s.interactive ? '' : `${visIdx + 1} / ${visSteps.length}`);
+
+        const _fadeIn = hasBtn
+            ? [this._bubbleBg, this._titleTxt, this._bodyTxt, this._btnGfx, this._btnTxt]
+            : [this._bubbleBg, this._titleTxt, this._bodyTxt];
+        this.tweens.add({ targets: _fadeIn, alpha: 1, duration: 340, ease: 'Power1' });
+
+        // Пульс кошелька на нужном шаге
+        const ms = this.scene.get('MainScene');
+        this.tweens.killTweensOf(ms && ms._walletLabel);
+        if (ms && ms._walletLabel) ms._walletLabel.setScale(1);
+        if (s.pulse === 'wallet' && ms && ms._walletLabel) {
+            ms._walletLabel.setAlpha(1); // снимаем alpha=0 которую мог оставить killTweensOf
+            this.tweens.add({
+                targets: ms._walletLabel,
+                scaleX: 1.18, scaleY: 1.18,
+                duration: 550, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+            });
+        }
+    }
+
+    _drawBtn(hover) {
+        const bx = this._btnHit.x - 79, by = this._btnHit.y - 17;
+        this._btnGfx.clear();
+        this._btnGfx.fillStyle(hover ? 0x1a5040 : 0x0d2820, 0.97);
+        this._btnGfx.fillRoundedRect(bx, by, 158, 34, 8);
+        this._btnGfx.lineStyle(hover ? 2.5 : 1.5, 0x44ffaa, hover ? 1 : 0.8);
+        this._btnGfx.strokeRoundedRect(bx, by, 158, 34, 8);
+    }
+
+    _drawDragArrow(offset) {
+        const gfx = this._arrowGfx;
+        gfx.clear();
+        const sx = 167, sy = 572, ex = 340, ey = 310;
+        const dx = ex - sx, dy = ey - sy;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const cos = dx / len, sin = dy / len;
+        const dashLen = 15, gap = 9, period = dashLen + gap, stopBefore = 16;
+
+        const pulse = 0.55 + 0.45 * Math.sin(offset * 0.18);
+        gfx.fillStyle(0xffffff, 0.85 * pulse);
+        gfx.fillCircle(sx, sy, 7 + 3 * pulse);
+        gfx.lineStyle(2, 0x44ffaa, pulse);
+        gfx.strokeCircle(sx, sy, 7 + 3 * pulse);
+
+        let d = -(offset % period);
+        while (d < len - stopBefore) {
+            const d0 = Math.max(0, d), d1 = Math.min(len - stopBefore, d + dashLen);
+            if (d1 > d0) {
+                gfx.lineStyle(2.5, 0xffffff, 0.82);
+                gfx.beginPath();
+                gfx.moveTo(sx + cos * d0, sy + sin * d0);
+                gfx.lineTo(sx + cos * d1, sy + sin * d1);
+                gfx.strokePath();
+            }
+            d += period;
+        }
+        const angle = Math.atan2(dy, dx);
+        gfx.lineStyle(3, 0x44ffaa, 1);
+        [angle - 0.42, angle + 0.42].forEach(a => {
+            gfx.beginPath(); gfx.moveTo(ex, ey);
+            gfx.lineTo(ex - 13 * Math.cos(a), ey - 13 * Math.sin(a)); gfx.strokePath();
+        });
+        gfx.fillStyle(0x44ffaa, 1); gfx.fillCircle(ex, ey, 4);
+    }
+
+    _advance() {
+        this._step++;
+        if (this._step >= this._steps.length) this._finish();
+        else this._showStep(this._step);
+    }
+
+    _setTimeScale(scale) {
+        const m = this.scene.get('MainScene');
+        if (!m) return;
+        if (m.physics && m.physics.world) m.physics.world.timeScale = scale;
+        if (m.time) m.time.timeScale = scale;
+        if (m.tweens) m.tweens.timeScale = scale;
+    }
+
+    _finish() {
+        const ms = this.scene.get('MainScene');
+        const statsGroup = this._uiGroups['stats'];
+        Object.entries(this._uiGroups).forEach(([key, arr]) => {
+            if (key === 'stats') return;
+            arr.forEach(o => o && o.setAlpha(1));
+        });
+        this._uiGroups = {};
+        if (ms && ms._walletLabel) { this.tweens.killTweensOf(ms._walletLabel); ms._walletLabel.setScale(1); }
+        this._setTimeScale(1);
+        try { localStorage.setItem('tutorial_seen', '1'); } catch (e) {}
+        const mainScene = ms;
+        if (mainScene) {
+            this.time.delayedCall(350, () => {
+                if (!mainScene.scene || !mainScene.scene.isActive()) return;
+                if (typeof mainScene._checkMechanicHints === 'function') mainScene._checkMechanicHints();
+                if (typeof mainScene._scheduleStatsHint === 'function') mainScene._scheduleStatsHint(statsGroup);
+            });
+        }
+        this.scene.stop();
+    }
+}
+
 class StartScene extends Phaser.Scene {
     constructor() { super('StartScene'); }
     preload() { _preloadGameFont(this); }
@@ -3099,7 +3721,7 @@ class StartScene extends Phaser.Scene {
 
         this.add.bitmapText(W / 2, H * 0.23, GF, 'BUMPER', 88).setOrigin(0.5).setTint(0x18ee50);
         this.add.bitmapText(W / 2, H * 0.23 + 90, GF, 'БИЗНЕС', 50).setOrigin(0.5).setTint(0x44aaff);
-        this.add.bitmapText(W / 2, H * 0.23 + 148, GF, 'Строй стены — зарабатывай деньги', 20).setOrigin(0.5).setTint(0xaaaacc);
+        this.add.bitmapText(W / 2, H * 0.23 + 148, GF, 'Строй стены — зарабатывай доллары', 20).setOrigin(0.5).setTint(0xaaaacc);
 
         const level = this.registry.get('level') || 1;
         let hasNormalSave = false, hasInfSave = false;
@@ -3233,8 +3855,8 @@ class EditorScene extends Phaser.Scene {
         // Tool palette
         const tools = [
             { key: 'boundary', label: 'СТЕНА', color: 0x888888, desc: 'Препятствие' },
-            { key: 'income', label: 'ДОХОД', color: 0x44ff88, desc: '+деньги хит' },
-            { key: 'trap', label: 'ЛОВУШКА', color: 0xff3333, desc: '-деньги' },
+            { key: 'income', label: 'ДОХОД', color: 0x44ff88, desc: '+доллары хит' },
+            { key: 'trap', label: 'ЛОВУШКА', color: 0xff3333, desc: '-доллары' },
             { key: 'slow', label: 'ЛЁД', color: 0x3366ff, desc: 'Замедление' },
             { key: 'zone', label: 'ЗОНА', color: 0x00ddaa, desc: 'Пасс. доход' },
             { key: 'teleport', label: 'ПОРТАЛ', color: 0xcc44ff, desc: 'Пара' },
@@ -3354,7 +3976,7 @@ class EditorScene extends Phaser.Scene {
         tY += 22 + 8;
 
         // Legend
-        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, '× = -деньги\n❄ = замедление\n◆ = зона дохода', 11).setOrigin(0.5, 0).setDepth(2).setTint(0x888888).setCenterAlign();
+        this.add.bitmapText(tBtnX + tBtnW / 2, tY, GF, '× = -доллары\n❄ = замедление\n◆ = зона дохода', 11).setOrigin(0.5, 0).setDepth(2).setTint(0x888888).setCenterAlign();
         tY += 52;
 
         // ── RIGHT COLUMN (col2) ──────────────────────────────────
@@ -3892,15 +4514,8 @@ class LevelSelectScene extends Phaser.Scene {
         const z = (col, row) => ({ col, row, type: 'zone' });
 
         const levels = [
-            // ── Уровень 1 – «Уголки» ──────────────────────────────────
-            // Четыре L-образных бампера по углам, две зоны дохода в центре
-            [
-                b(2, 1), b(3, 1), b(2, 2),
-                b(6, 1), b(7, 1), b(7, 2),
-                b(2, 7), b(2, 8), b(3, 8),
-                b(7, 7), b(6, 8), b(7, 8),
-                z(4, 4), z(5, 5),
-            ],
+            // ── Уровень 1 – пустое поле (обучение) ───────────────────
+            [],
             // ── Уровень 2 – «Каналы» ──────────────────────────────────
             // Два горизонтальных барьера сверху и снизу, зоны по бокам, один замедлитель
             [
@@ -3984,7 +4599,7 @@ const config = {
     input: {
         activePointers: 3,
     },
-    scene: [StartScene, MainScene, EditorScene, LevelSelectScene],
+    scene: [StartScene, MainScene, EditorScene, LevelSelectScene, TutorialScene],
     physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: 0 } },
 };
 // Worker-driven requestAnimationFrame: the Web Worker runs in a separate OS thread
