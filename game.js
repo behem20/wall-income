@@ -321,12 +321,22 @@ class MainScene extends Phaser.Scene {
         this.setupInput();
         this.updateUI();
         this.input.once('pointerdown', () => this.startMusic());
-        // UI tour — first run only (skip in test mode)
+        // UI tour — first run only, after 20s OR when earned 500$
         try {
             if (!this.testMode && !localStorage.getItem('tutorial_seen')) {
-                this.time.delayedCall(250, () => {
-                    if (this.scene.isActive()) this.scene.launch('TutorialScene');
-                });
+                let _tutLaunched = false;
+                const _launch = () => {
+                    if (_tutLaunched || !this.scene.isActive() || this.scene.isActive('TutorialScene')) return;
+                    _tutLaunched = true;
+                    this.scene.launch('TutorialScene');
+                };
+                this.time.delayedCall(20000, _launch);
+                const _check = () => {
+                    if (_tutLaunched || !this.scene.isActive()) return;
+                    if ((this.totalEarned || 0) >= 500) { _launch(); return; }
+                    this.time.delayedCall(1000, _check);
+                };
+                this.time.delayedCall(1000, _check);
             }
         } catch (e) {}
         // Place any editor-defined custom walls
@@ -922,22 +932,22 @@ class MainScene extends Phaser.Scene {
             this._fadeExit(400, () => this.scene.start('StartScene'));
         });
 
-        // Back-to-editor button (test mode only)
-        if (this.testMode) {
+        // Dev buttons (always shown in dev build)
+        if (true) {
             const edBtnGfx = this.add.graphics().setDepth(10);
             const drawEdBtn = (hov) => {
                 edBtnGfx.clear();
-                edBtnGfx.fillStyle(hov ? 0x0e2a14 : 0x081208, 0.95);
-                edBtnGfx.fillRoundedRect(628, 72, 62, 26, 6);
-                edBtnGfx.lineStyle(1.5, hov ? 0x44ff88 : 0x226633, 1);
-                edBtnGfx.strokeRoundedRect(628, 72, 62, 26, 6);
+                edBtnGfx.fillStyle(hov ? 0x2a1a00 : 0x150d00, 0.97);
+                edBtnGfx.fillRoundedRect(670, 100, 84, 26, 7);
+                edBtnGfx.lineStyle(2, hov ? 0xffcc44 : 0x996622, 1);
+                edBtnGfx.strokeRoundedRect(670, 100, 84, 26, 7);
             };
             drawEdBtn(false);
-            this.add.bitmapText(659, 85, this._gf, '← РЕД', 13).setOrigin(0.5).setDepth(11).setTint(0x44ff88);
-            const edBtnHit = this.add.rectangle(659, 85, 62, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
+            this.add.bitmapText(712, 113, this._gf, '✏ УРОВНИ', 14).setOrigin(0.5).setDepth(11).setTint(0xffcc44);
+            const edBtnHit = this.add.rectangle(712, 113, 84, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
             edBtnHit.on('pointerover', () => drawEdBtn(true));
             edBtnHit.on('pointerout', () => drawEdBtn(false));
-            edBtnHit.on('pointerdown', () => this.scene.start('EditorScene', { levelNum: this.testLevelNum }));
+            edBtnHit.on('pointerdown', () => this.scene.start('LevelSelectScene'));
 
             // ── DEV spawn buttons ────────────────────────────────────
             const devBtnStyle = { _gf: this._gf, size: 13, tint: 0xffee44 };
@@ -3549,6 +3559,12 @@ class TutorialScene extends Phaser.Scene {
                 text: 'Заработай нужную\nсумму — и уровень\nбудет пройден!',
                 bubX: 245, bubY: 205,
                 unlocks: ['top']
+            },
+            {
+                title: 'СЕКРЕТ ПРОФИ',
+                text: 'Окружи мяч стенами!\nЧем теснее ловушка —\nтем быстрее деньги!',
+                bubX: 560, bubY: 200,
+                interactive: 'trap_demo'
             }
         ];
 
@@ -3591,6 +3607,12 @@ class TutorialScene extends Phaser.Scene {
     update() {
         const s = this._steps[this._step];
         if (!s || !s.interactive) return;
+
+        if (s.interactive === 'trap_demo') {
+            if (this._demoUpdateFn) this._demoUpdateFn();
+            return;
+        }
+
         const m = this.scene.get('MainScene');
         if (!m || !m.scene || !m.scene.isActive()) return;
 
@@ -3619,6 +3641,100 @@ class TutorialScene extends Phaser.Scene {
         if (s.unlocks) this._unlock(s.unlocks);
 
         // Скрытый шаг wait_coins — прогресс справа от кошелька, с пульсом
+        if (s.interactive === 'trap_demo') {
+            this._spotGfx.clear();
+            this._blocker.setInteractive();
+            this._setTimeScale(1);
+
+            // Пузырь с текстом слева
+            const BW = 240, lineCount = (s.text || '').split('\n').length;
+            const BH = 52 + lineCount * 26 + 56;
+            const bx = 20, by = 160;
+            this._bubbleBg.clear();
+            this._bubbleBg.fillStyle(0x060c1a, 0.97);
+            this._bubbleBg.fillRoundedRect(bx, by, BW, BH, 10);
+            this._bubbleBg.lineStyle(2, 0x44ffaa, 0.88);
+            this._bubbleBg.strokeRoundedRect(bx, by, BW, BH, 10);
+            this._titleTxt.setFontSize(22).setPosition(bx + BW / 2, by + 12).setText(s.title || '').setTint(0x44ffaa).setScale(1);
+            this._bodyTxt.setFontSize(16).setOrigin(0, 0).setTint(0xbbccff).setPosition(bx + 13, by + 41).setText(s.text || '').setMaxWidth(BW - 26).setScale(1);
+
+            // Кнопка НАЧАТЬ
+            this._btnHit.setInteractive({ useHandCursor: true });
+            const btnX = bx + BW / 2, btnY = by + BH - 20;
+            this._btnTxt.setPosition(btnX, btnY).setText('НАЧАТЬ! ▶').setVisible(true);
+            this._btnGfx.setVisible(true);
+            this._btnHit.setPosition(btnX, btnY).setSize(158, 34);
+            this._drawBtn(false);
+
+            const visSteps = this._steps.filter(st => st.interactive !== 'wait_coins');
+            const visIdx = visSteps.indexOf(s);
+            this._stepTxt.setTint(0x445566).setText(`${visIdx + 1} / ${visSteps.length}`);
+
+            // Мини-демо ловушки справа
+            const demo = this.add.graphics().setDepth(103);
+            this._demoGfx = demo;
+            this._demoObjs = [demo];
+
+            const cx = 560, cy = 400, cell = 44, R = 14;
+
+            // Фон рамки (полупрозрачный)
+            demo.fillStyle(0x050d1a, 0.82);
+            demo.fillRoundedRect(cx - cell * 1.5 - 12, cy - cell * 1.5 - 12, cell * 3 + 24, cell * 3 + 24, 12);
+            demo.lineStyle(2, 0x3366aa, 0.7);
+            demo.strokeRoundedRect(cx - cell * 1.5 - 12, cy - cell * 1.5 - 12, cell * 3 + 24, cell * 3 + 24, 12);
+
+            // Стены ловушки
+            const wallPositions = [
+                [-1,-1],[0,-1],[1,-1],
+                [-1, 0],       [1, 0],
+                [-1, 1],[0, 1],[1, 1],
+            ];
+            wallPositions.forEach(([dc, dr]) => {
+                demo.fillStyle(0x1a4a8a, 1);
+                demo.fillRoundedRect(cx + dc * cell - cell/2 + 2, cy + dr * cell - cell/2 + 2, cell - 4, cell - 4, 5);
+                demo.lineStyle(1.5, 0x44aaff, 0.9);
+                demo.strokeRoundedRect(cx + dc * cell - cell/2 + 2, cy + dr * cell - cell/2 + 2, cell - 4, cell - 4, 5);
+                const valTxt = this.add.bitmapText(cx + dc * cell, cy + dr * cell, this._gf, '3$', 13).setOrigin(0.5).setDepth(104).setTint(0xffdd44);
+                this._demoObjs.push(valTxt);
+            });
+
+            // Мяч розовый
+            const ball = this.add.circle(cx, cy, R, 0xff44aa).setDepth(104);
+            const ballStroke = this.add.graphics().setDepth(104);
+            this._demoObjs.push(ball, ballStroke);
+
+            // Физика мяча
+            let bx2 = cx, by2 = cy, vx = 5.5, vy = -4.2;
+            const minX = cx - cell + R + 2, maxX = cx + cell - R - 2;
+            const minY = cy - cell + R + 2, maxY = cy + cell - R - 2;
+
+            // Плавающие $ — часто
+            this._demoMoneyTimer = this.time.addEvent({ delay: 80, loop: true, callback: () => {
+                if (!this.scene.isActive()) return;
+                const ft = this.add.bitmapText(bx2 + Phaser.Math.Between(-18, 18), by2 - 8, this._gf, '+3$', 15)
+                    .setOrigin(0.5).setDepth(105).setTint(0x44ff88);
+                this._demoObjs.push(ft);
+                this.tweens.add({ targets: ft, y: ft.y - 30, alpha: 0, duration: 500, ease: 'Power1', onComplete: () => ft.destroy() });
+            }});
+
+            // Обновление позиции мяча
+            this._demoUpdateFn = () => {
+                if (!ball.active) return;
+                bx2 += vx; by2 += vy;
+                if (bx2 <= minX) { bx2 = minX; vx = Math.abs(vx); }
+                if (bx2 >= maxX) { bx2 = maxX; vx = -Math.abs(vx); }
+                if (by2 <= minY) { by2 = minY; vy = Math.abs(vy); }
+                if (by2 >= maxY) { by2 = maxY; vy = -Math.abs(vy); }
+                ball.setPosition(bx2, by2);
+                ballStroke.clear();
+                ballStroke.lineStyle(2, 0xff88cc, 0.8);
+                ballStroke.strokeCircle(bx2, by2, R);
+            };
+
+            this.tweens.add({ targets: [this._bubbleBg, this._titleTxt, this._bodyTxt, this._btnGfx, this._btnTxt, demo], alpha: 1, duration: 340, ease: 'Power1' });
+            return;
+        }
+
         if (s.interactive === 'wait_coins') {
             const msWait = this.scene.get('MainScene');
             if (msWait && msWait._walletLabel) {
@@ -3776,6 +3892,14 @@ class TutorialScene extends Phaser.Scene {
     }
 
     _advance() {
+        // Чистим демо-объекты если уходим с trap_demo шага
+        if (this._demoObjs) {
+            this._demoObjs.forEach(o => { if (o && o.active) o.destroy(); });
+            this._demoObjs = null;
+        }
+        if (this._demoMoneyTimer) { this._demoMoneyTimer.remove(); this._demoMoneyTimer = null; }
+        this._demoUpdateFn = null;
+
         this._step++;
         if (this._step >= this._steps.length) this._finish();
         else this._showStep(this._step);
@@ -3926,18 +4050,21 @@ class StartScene extends Phaser.Scene {
             cy += bh + 12;
         });
 
-        // Hidden dev button — triple-tap bottom-left corner (invisible)
-        let _devTaps = 0, _devTimer = null;
-        const _devHit = this.add.rectangle(40, H - 40, 80, 80, 0, 0).setInteractive();
-        _devHit.on('pointerdown', () => {
-            _devTaps++;
-            if (_devTimer) clearTimeout(_devTimer);
-            _devTimer = setTimeout(() => { _devTaps = 0; }, 1500);
-            if (_devTaps >= 3) {
-                _devTaps = 0;
-                this.scene.start('LevelSelectScene');
-            }
-        });
+        // Dev — editor button
+        const _devGfx = this.add.graphics();
+        const _drawDev = (hov) => {
+            _devGfx.clear();
+            _devGfx.fillStyle(hov ? 0x2a1a00 : 0x150d00, 0.97);
+            _devGfx.fillRoundedRect(W / 2 - 80, H - 80, 160, 42, 10);
+            _devGfx.lineStyle(2, hov ? 0xffcc44 : 0x996622, 1);
+            _devGfx.strokeRoundedRect(W / 2 - 80, H - 80, 160, 42, 10);
+        };
+        _drawDev(false);
+        this.add.bitmapText(W / 2, H - 59, GF, '✏  РЕДАКТОР УРОВНЕЙ', 16).setOrigin(0.5).setTint(0xffcc44);
+        const _devHit = this.add.rectangle(W / 2, H - 59, 160, 42, 0, 0).setInteractive({ useHandCursor: true });
+        _devHit.on('pointerover', () => _drawDev(true));
+        _devHit.on('pointerout', () => _drawDev(false));
+        _devHit.on('pointerdown', () => this.scene.start('LevelSelectScene'));
     }
 }
 
@@ -4447,9 +4574,17 @@ class EditorScene extends Phaser.Scene {
 
     _loadLevel() {
         try {
-            const raw = localStorage.getItem(this._levelKey());
-            if (!raw) return;
-            const parsed = JSON.parse(raw);
+            let parsed = null;
+            // Сначала пробуем из LEVEL_CONFIGS (главный источник правды)
+            if (this.levelNum && this.levelNum >= 1 && this.levelNum <= LEVEL_CONFIGS.length) {
+                parsed = LEVEL_CONFIGS[this.levelNum - 1];
+            }
+            // Fallback — localStorage (для bumper_editor_level и кастомных)
+            if (!parsed) {
+                const raw = localStorage.getItem(this._levelKey());
+                if (!raw) return;
+                parsed = JSON.parse(raw);
+            }
             const walls = Array.isArray(parsed) ? parsed : (parsed.walls || []);
             this.lightTheme = !Array.isArray(parsed) && !!(parsed.lightTheme);
             if (!Array.isArray(parsed) && parsed.targetMoney) {
