@@ -3437,7 +3437,7 @@ class MainScene extends Phaser.Scene {
             btnHit.on('pointerdown', () => {
                 try { localStorage.removeItem('bumper_save_normal'); } catch (e) { }
                 this.registry.set('level', 1);
-                this._fadeExit(600, () => this.scene.start('LevelSelectScene'));
+                this._fadeExit(600, () => this.scene.start('StartScene'));
             });
 
             this.time.delayedCall(900, () => {
@@ -3445,6 +3445,11 @@ class MainScene extends Phaser.Scene {
             });
 
             this._playWinFireworks();
+
+            this.time.delayedCall(5500, () => {
+                this.registry.set('level', 1);
+                this._fadeExit(900, () => this.scene.start('StartScene'));
+            });
 
         } else {
             panel.fillStyle(0x071420, 0.95); panel.fillRoundedRect(160, 250, 440, 220, 18);
@@ -3835,15 +3840,43 @@ class StartScene extends Phaser.Scene {
             const cfg = LEVEL_CONFIGS[lvl - 1];
             const D = 36, GSX = 200, GSY = 118;
             const customWalls = [];
-            cfg.walls.forEach(w => {
-                const _cw = { x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null };
-                if (w.type === 'teleport' && w.partnerCol !== undefined) {
-                    _cw.targetX = GSX + w.partnerCol * D + D / 2;
-                    _cw.targetY = GSY + w.partnerRow * D + D / 2;
+            let lightTheme = cfg.lightTheme, targetMoney = cfg.targetMoney;
+
+            // Use localStorage version if user edited the level
+            let loadedFromStorage = false;
+            try {
+                const raw = localStorage.getItem(`bumper_level_${lvl}`);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    const walls = Array.isArray(parsed) ? parsed : (parsed.walls || []);
+                    if (!Array.isArray(parsed)) {
+                        if (parsed.lightTheme !== undefined) lightTheme = parsed.lightTheme;
+                        if (parsed.targetMoney) targetMoney = parsed.targetMoney;
+                    }
+                    walls.forEach(w => {
+                        const _cw = { x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null };
+                        if (w.type === 'teleport' && w.partnerCol !== undefined) {
+                            _cw.targetX = GSX + w.partnerCol * D + D / 2;
+                            _cw.targetY = GSY + w.partnerRow * D + D / 2;
+                        }
+                        customWalls.push(_cw);
+                    });
+                    loadedFromStorage = true;
                 }
-                customWalls.push(_cw);
-            });
-            this.scene.start('MainScene', { customWalls, levelNum: lvl, lightTheme: cfg.lightTheme, targetMoney: cfg.targetMoney });
+            } catch (e) {}
+
+            if (!loadedFromStorage) {
+                cfg.walls.forEach(w => {
+                    const _cw = { x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null };
+                    if (w.type === 'teleport' && w.partnerCol !== undefined) {
+                        _cw.targetX = GSX + w.partnerCol * D + D / 2;
+                        _cw.targetY = GSY + w.partnerRow * D + D / 2;
+                    }
+                    customWalls.push(_cw);
+                });
+            }
+
+            this.scene.start('MainScene', { customWalls, levelNum: lvl, lightTheme, targetMoney });
         };
 
         const btnDefs = [
