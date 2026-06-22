@@ -918,6 +918,7 @@ class MainScene extends Phaser.Scene {
         menuHit.on('pointerout', () => drawMenuBtn(false));
         menuHit.on('pointerdown', () => {
             this.saveProgress();
+            this.stopMusic();
             this._fadeExit(400, () => this.scene.start('StartScene'));
         });
 
