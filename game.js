@@ -3821,12 +3821,28 @@ class StartScene extends Phaser.Scene {
         try { hasNormalSave = !!localStorage.getItem('bumper_save_normal'); } catch (e) { }
         try { hasInfSave = !!localStorage.getItem('bumper_save_infinite'); } catch (e) { }
 
+        const _startLevel = () => {
+            const lvl = Math.min(this.registry.get('level') || 1, LEVEL_CONFIGS.length);
+            const cfg = LEVEL_CONFIGS[lvl - 1];
+            const D = 36, GSX = 200, GSY = 118;
+            const customWalls = [];
+            cfg.walls.forEach(w => {
+                const _cw = { x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null };
+                if (w.type === 'teleport' && w.partnerCol !== undefined) {
+                    _cw.targetX = GSX + w.partnerCol * D + D / 2;
+                    _cw.targetY = GSY + w.partnerRow * D + D / 2;
+                }
+                customWalls.push(_cw);
+            });
+            this.scene.start('MainScene', { customWalls, levelNum: lvl, lightTheme: cfg.lightTheme, targetMoney: cfg.targetMoney });
+        };
+
         const btnDefs = [
             {
                 label: 'ИГРАТЬ',
-                sub: hasNormalSave ? '(продолжить)' : '(выбрать уровень)',
+                sub: hasNormalSave ? `(уровень ${level})` : `(уровень ${level})`,
                 clr: 0x44ff88, bg: 0x0d2818, bgH: 0x1a4828,
-                action: () => this.scene.start('LevelSelectScene'), pulse: true
+                action: _startLevel, pulse: true
             },
             {
                 label: '∞  БЕСКОНЕЧНЫЙ',
