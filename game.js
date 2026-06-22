@@ -3900,8 +3900,8 @@ class StartScene extends Phaser.Scene {
             },
         ];
 
-        const bw = 290, bh = 64, bx = W / 2 - bw / 2;
-        let cy = 490;
+        const bw = 560, bh = 110, bx = W / 2 - bw / 2;
+        let cy = 450;
 
         btnDefs.forEach(def => {
             const by = cy;
@@ -3909,15 +3909,15 @@ class StartScene extends Phaser.Scene {
             const draw = (hov) => {
                 gfx.clear();
                 gfx.fillStyle(hov ? def.bgH : def.bg, 1);
-                gfx.fillRoundedRect(bx, by - bh / 2, bw, bh, 12);
-                gfx.lineStyle(2.5, def.clr, hov ? 1 : 0.75);
-                gfx.strokeRoundedRect(bx, by - bh / 2, bw, bh, 12);
+                gfx.fillRoundedRect(bx, by - bh / 2, bw, bh, 18);
+                gfx.lineStyle(3, def.clr, hov ? 1 : 0.75);
+                gfx.strokeRoundedRect(bx, by - bh / 2, bw, bh, 18);
             };
             draw(false);
-            const mainY = def.sub ? by - 8 : by;
-            const sz = def.label.length > 15 ? 26 : 34;
+            const mainY = def.sub ? by - 14 : by;
+            const sz = def.label.length > 15 ? 36 : 46;
             const txt = this.add.bitmapText(W / 2, mainY, GF, def.label, sz).setOrigin(0.5).setTint(def.clr);
-            if (def.sub) this.add.bitmapText(W / 2, by + 18, GF, def.sub, 13).setOrigin(0.5).setAlpha(0.6).setTint(def.clr);
+            if (def.sub) this.add.bitmapText(W / 2, by + 26, GF, def.sub, 18).setOrigin(0.5).setAlpha(0.6).setTint(def.clr);
             const hit = this.add.rectangle(W / 2, by, bw, bh, 0, 0).setInteractive({ useHandCursor: true });
             hit.on('pointerover', () => draw(true));
             hit.on('pointerout', () => draw(false));
