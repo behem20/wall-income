@@ -89,6 +89,69 @@ const PARTICLE_CFG = {
     },
 };
 
+const LEVEL_CONFIGS = [
+    // Уровень 1
+    { walls: [], targetMoney: 2000, lightTheme: false },
+    // Уровень 2
+    { walls: [
+        {col:1,row:1,type:"slow"},{col:2,row:1,type:"slow"},{col:3,row:1,type:"slow"},{col:6,row:1,type:"slow"},{col:7,row:1,type:"slow"},{col:8,row:1,type:"slow"},
+        {col:1,row:2,type:"slow"},{col:8,row:2,type:"slow"},{col:1,row:3,type:"slow"},{col:8,row:3,type:"slow"},
+        {col:4,row:4,type:"income"},{col:5,row:4,type:"income"},{col:4,row:5,type:"income"},{col:5,row:5,type:"income"},
+        {col:1,row:6,type:"slow"},{col:8,row:6,type:"slow"},{col:1,row:7,type:"slow"},{col:8,row:7,type:"slow"},
+        {col:1,row:8,type:"slow"},{col:2,row:8,type:"slow"},{col:3,row:8,type:"slow"},{col:6,row:8,type:"slow"},{col:7,row:8,type:"slow"},{col:8,row:8,type:"slow"},
+    ], targetMoney: 2500, lightTheme: false },
+    // Уровень 3
+    { walls: [
+        {col:0,row:8,type:"trap",damage:1},{col:9,row:8,type:"trap",damage:1},
+        {col:1,row:9,type:"trap",damage:1},{col:4,row:9,type:"trap",damage:1},{col:5,row:9,type:"trap",damage:1},{col:8,row:9,type:"trap",damage:1},
+    ], targetMoney: 3000, lightTheme: false },
+    // Уровень 4
+    { walls: [
+        {col:0,row:0,type:"slow"},{col:1,row:0,type:"slow"},{col:2,row:0,type:"income"},{col:3,row:0,type:"income"},{col:4,row:0,type:"income"},{col:5,row:0,type:"income"},{col:6,row:0,type:"income"},{col:7,row:0,type:"income"},{col:8,row:0,type:"slow"},{col:9,row:0,type:"slow"},
+        {col:0,row:1,type:"slow"},{col:9,row:1,type:"slow"},
+        {col:0,row:2,type:"income"},{col:9,row:2,type:"income"},{col:0,row:3,type:"income"},{col:9,row:3,type:"income"},{col:0,row:4,type:"income"},{col:9,row:4,type:"income"},{col:0,row:5,type:"income"},{col:9,row:5,type:"income"},{col:0,row:6,type:"income"},{col:9,row:6,type:"income"},{col:0,row:7,type:"income"},{col:9,row:7,type:"income"},
+        {col:0,row:8,type:"trap",damage:5},{col:9,row:8,type:"trap",damage:5},{col:0,row:9,type:"trap",damage:5},{col:1,row:9,type:"trap",damage:5},{col:2,row:9,type:"income"},{col:3,row:9,type:"income"},{col:4,row:9,type:"income"},{col:5,row:9,type:"income"},{col:6,row:9,type:"income"},{col:7,row:9,type:"income"},{col:8,row:9,type:"trap",damage:5},{col:9,row:9,type:"trap",damage:5},
+    ], targetMoney: 4000, lightTheme: false },
+    // Уровень 5
+    { walls: [
+        {col:0,row:0,type:"silverZone"},{col:9,row:0,type:"silverZone"},
+        {col:0,row:4,type:"silverZone"},{col:9,row:4,type:"silverZone"},
+        {col:0,row:8,type:"silverZone"},{col:9,row:8,type:"silverZone"},
+    ], targetMoney: 10000, lightTheme: false },
+    // Уровень 6
+    { walls: [
+        {col:0,row:0,type:"income"},{col:9,row:0,type:"income"},
+        {col:2,row:5,type:"income"},{col:3,row:5,type:"income"},{col:4,row:5,type:"income"},{col:5,row:5,type:"income"},{col:6,row:5,type:"income"},{col:7,row:5,type:"income"},
+        {col:0,row:9,type:"income"},{col:9,row:9,type:"income"},
+    ], targetMoney: 5000, lightTheme: false },
+    // Уровень 7
+    { walls: [
+        {col:5,row:0,type:"teleport",pairId:1,partnerRow:9,partnerCol:4},{col:9,row:0,type:"boundary",color:8947848},
+        {col:8,row:1,type:"boundary",color:8947848},{col:7,row:2,type:"boundary",color:8947848},{col:6,row:3,type:"boundary",color:8947848},{col:5,row:4,type:"boundary",color:8947848},{col:4,row:5,type:"boundary",color:8947848},{col:9,row:5,type:"goldZone"},{col:3,row:6,type:"boundary",color:8947848},{col:2,row:7,type:"boundary",color:8947848},{col:1,row:8,type:"boundary",color:8947848},{col:0,row:9,type:"boundary",color:8947848},
+        {col:4,row:9,type:"teleport",pairId:1,partnerRow:0,partnerCol:5},
+    ], targetMoney: 10000, lightTheme: false },
+    // Уровень 8
+    { walls: [
+        {col:0,row:0,type:"income"},{col:1,row:0,type:"income"},{col:2,row:0,type:"income"},{col:3,row:0,type:"income"},{col:4,row:0,type:"income"},{col:5,row:0,type:"income"},{col:6,row:0,type:"income"},{col:7,row:0,type:"income"},{col:8,row:0,type:"income"},{col:9,row:0,type:"income"},
+        {col:0,row:3,type:"slow"},{col:9,row:3,type:"slow"},{col:1,row:4,type:"slow"},{col:8,row:4,type:"slow"},{col:0,row:5,type:"slow"},{col:9,row:5,type:"slow"},{col:1,row:6,type:"slow"},{col:8,row:6,type:"slow"},
+        {col:0,row:9,type:"trap",damage:5},{col:1,row:9,type:"trap",damage:5},{col:2,row:9,type:"trap",damage:5},{col:3,row:9,type:"trap",damage:5},{col:4,row:9,type:"trap",damage:5},{col:5,row:9,type:"trap",damage:5},{col:6,row:9,type:"trap",damage:5},{col:7,row:9,type:"trap",damage:5},{col:8,row:9,type:"trap",damage:5},{col:9,row:9,type:"trap",damage:5},
+    ], targetMoney: 15000, lightTheme: true },
+    // Уровень 9
+    { walls: [
+        {col:0,row:0,type:"silverZone"},{col:1,row:0,type:"boundary",color:8947848},{col:8,row:0,type:"boundary",color:8947848},{col:9,row:0,type:"goldZone"},
+        {col:1,row:1,type:"boundary",color:8947848},{col:8,row:1,type:"boundary",color:8947848},{col:1,row:2,type:"boundary",color:8947848},{col:8,row:2,type:"boundary",color:8947848},{col:1,row:3,type:"boundary",color:8947848},{col:8,row:3,type:"boundary",color:8947848},{col:1,row:4,type:"boundary",color:8947848},{col:8,row:4,type:"boundary",color:8947848},{col:1,row:5,type:"boundary",color:8947848},{col:8,row:5,type:"boundary",color:8947848},{col:1,row:6,type:"boundary",color:8947848},{col:8,row:6,type:"boundary",color:8947848},{col:1,row:7,type:"boundary",color:8947848},{col:8,row:7,type:"boundary",color:8947848},{col:8,row:8,type:"boundary",color:8947848},
+        {col:0,row:9,type:"slow"},{col:9,row:9,type:"trap",damage:5},
+    ], targetMoney: 12000, lightTheme: false },
+    // Уровень 10
+    { walls: [
+        {col:2,row:0,type:"boundary",color:8947848},{col:6,row:0,type:"boundary",color:8947848},{col:9,row:0,type:"teleport",pairId:1,partnerRow:5,partnerCol:9},
+        {col:1,row:1,type:"boundary",color:8947848},{col:5,row:1,type:"boundary",color:8947848},{col:0,row:2,type:"boundary",color:8947848},{col:4,row:2,type:"boundary",color:8947848},{col:3,row:3,type:"boundary",color:8947848},{col:9,row:3,type:"boundary",color:8947848},
+        {col:0,row:4,type:"teleport",pairId:2,partnerRow:9,partnerCol:0},{col:2,row:4,type:"boundary",color:8947848},{col:8,row:4,type:"boundary",color:8947848},{col:1,row:5,type:"boundary",color:8947848},{col:7,row:5,type:"boundary",color:8947848},{col:9,row:5,type:"teleport",pairId:1,partnerRow:0,partnerCol:9},
+        {col:0,row:6,type:"boundary",color:8947848},{col:6,row:6,type:"boundary",color:8947848},{col:5,row:7,type:"boundary",color:8947848},{col:9,row:7,type:"boundary",color:8947848},{col:4,row:8,type:"boundary",color:8947848},{col:8,row:8,type:"boundary",color:8947848},
+        {col:0,row:9,type:"teleport",pairId:2,partnerRow:4,partnerCol:0},{col:3,row:9,type:"boundary",color:8947848},{col:7,row:9,type:"boundary",color:8947848},
+    ], targetMoney: 20000, lightTheme: false },
+];
+
 class MainScene extends Phaser.Scene {
     constructor() { super('MainScene'); }
 
@@ -258,9 +321,9 @@ class MainScene extends Phaser.Scene {
         this.setupInput();
         this.updateUI();
         this.input.once('pointerdown', () => this.startMusic());
-        // UI tour — first run only
+        // UI tour — first run only (skip in test mode)
         try {
-            if (!localStorage.getItem('tutorial_seen')) {
+            if (!this.testMode && !localStorage.getItem('tutorial_seen')) {
                 this.time.delayedCall(250, () => {
                     if (this.scene.isActive()) this.scene.launch('TutorialScene');
                 });
@@ -2969,7 +3032,7 @@ class MainScene extends Phaser.Scene {
                     this.time.delayedCall(400, () => { if (_sp && _sp.active) _sp.destroy(); });
                 }
                 const now = this.time.now;
-                if (now - (wall.lastHit || 0) >= 16) {
+                if (now - (wall.lastHit || 0) >= 50) {
                     wall.lastHit = now;
                     if (wall.incomeValue > 0) {
                         const _mult = ball.multiplier || 1;
@@ -3331,39 +3394,69 @@ class MainScene extends Phaser.Scene {
 
     winGame() {
         this.gameWon = true;
-        // Clear the normal save — level is complete, start fresh next time
         try { localStorage.removeItem('bumper_save_normal'); } catch (e) { }
         this.playSound('win');
 
-        // Dark overlay fade in
         const overlay = this.add.rectangle(380, 435, 760, 870, 0x000000, 0).setDepth(30);
         this.tweens.add({ targets: overlay, alpha: 0.62, duration: 700, ease: 'Power2' });
 
-        // Winner panel
-        const panel = this.add.graphics().setDepth(31);
-        panel.fillStyle(0x071420, 0.95); panel.fillRoundedRect(160, 250, 440, 220, 18);
-        panel.lineStyle(3, 0xffdd22, 1); panel.strokeRoundedRect(160, 250, 440, 220, 18);
-
         const lvl = this.registry.get('level') || 1;
-        this.add.bitmapText(380, 295, this._gf, `УРОВЕНЬ ${lvl} ПРОЙДЕН!`, 36).setOrigin(0.5).setDepth(32).setTint(0xffdd22);
-        this.add.bitmapText(380, 348, this._gf, `Заработано ${this.targetMoney.toLocaleString()}$`, 22).setOrigin(0.5).setDepth(32).setTint(0x44aaff);
+        const isLastLevel = lvl >= LEVEL_CONFIGS.length;
 
-        const nextLvl = lvl + 1;
-        const goTxt = this.add.bitmapText(380, 410, this._gf, `→ Уровень ${nextLvl}`, 28).setOrigin(0.5).setDepth(32).setAlpha(0).setTint(0x88ff88);
-        this.time.delayedCall(900, () => {
-            this.tweens.add({ targets: goTxt, alpha: 1, duration: 500, ease: 'Power2' });
-        });
+        const panel = this.add.graphics().setDepth(31);
+        if (isLastLevel) {
+            panel.fillStyle(0x0a0a1a, 0.97); panel.fillRoundedRect(100, 200, 560, 320, 22);
+            panel.lineStyle(3, 0xffdd22, 1); panel.strokeRoundedRect(100, 200, 560, 320, 22);
 
-        // Increment level in registry
-        this.registry.set('level', nextLvl);
+            this.add.bitmapText(380, 255, this._gf, 'ИГРА ПРОЙДЕНА!', 48).setOrigin(0.5).setDepth(32).setTint(0xffdd22);
+            this.add.bitmapText(380, 318, this._gf, 'Все 10 уровней завершены', 24).setOrigin(0.5).setDepth(32).setTint(0x44aaff);
+            this.add.bitmapText(380, 358, this._gf, 'Поздравляем!', 22).setOrigin(0.5).setDepth(32).setTint(0xaaaacc);
 
-        // Fireworks
-        this._playWinFireworks();
+            // Restart button
+            const btnGfx = this.add.graphics().setDepth(32).setAlpha(0);
+            const btnTxt = this.add.bitmapText(380, 450, this._gf, '↺  НАЧАТЬ ЗАНОВО', 30).setOrigin(0.5).setDepth(33).setTint(0x88ff88).setAlpha(0);
+            const btnHit = this.add.rectangle(380, 450, 320, 56, 0, 0).setDepth(34).setAlpha(0).setInteractive({ useHandCursor: true });
 
-        // Fade out + return to menu
-        this.time.delayedCall(4200, () => {
-            this._fadeExit(900, () => this.scene.start('StartScene'));
-        });
+            const drawBtn = (hov) => {
+                btnGfx.clear();
+                btnGfx.fillStyle(hov ? 0x1a4828 : 0x0d2818, 1); btnGfx.fillRoundedRect(220, 422, 320, 56, 12);
+                btnGfx.lineStyle(2.5, 0x44ff88, hov ? 1 : 0.7); btnGfx.strokeRoundedRect(220, 422, 320, 56, 12);
+            };
+            drawBtn(false);
+            btnHit.on('pointerover', () => drawBtn(true));
+            btnHit.on('pointerout', () => drawBtn(false));
+            btnHit.on('pointerdown', () => {
+                try { localStorage.removeItem('bumper_save_normal'); } catch (e) { }
+                this.registry.set('level', 1);
+                this._fadeExit(600, () => this.scene.start('LevelSelectScene'));
+            });
+
+            this.time.delayedCall(900, () => {
+                this.tweens.add({ targets: [btnGfx, btnTxt, btnHit], alpha: 1, duration: 500, ease: 'Power2' });
+            });
+
+            this._playWinFireworks();
+
+        } else {
+            panel.fillStyle(0x071420, 0.95); panel.fillRoundedRect(160, 250, 440, 220, 18);
+            panel.lineStyle(3, 0xffdd22, 1); panel.strokeRoundedRect(160, 250, 440, 220, 18);
+
+            this.add.bitmapText(380, 295, this._gf, `УРОВЕНЬ ${lvl} ПРОЙДЕН!`, 36).setOrigin(0.5).setDepth(32).setTint(0xffdd22);
+            this.add.bitmapText(380, 348, this._gf, `Заработано ${this.targetMoney.toLocaleString()}$`, 22).setOrigin(0.5).setDepth(32).setTint(0x44aaff);
+
+            const nextLvl = lvl + 1;
+            const goTxt = this.add.bitmapText(380, 410, this._gf, `→ Уровень ${nextLvl}`, 28).setOrigin(0.5).setDepth(32).setAlpha(0).setTint(0x88ff88);
+            this.time.delayedCall(900, () => {
+                this.tweens.add({ targets: goTxt, alpha: 1, duration: 500, ease: 'Power2' });
+            });
+
+            this.registry.set('level', nextLvl);
+            this._playWinFireworks();
+
+            this.time.delayedCall(4200, () => {
+                this._fadeExit(900, () => this.scene.start('StartScene'));
+            });
+        }
     }
 
     _playWinFireworks() {
@@ -3728,11 +3821,10 @@ class StartScene extends Phaser.Scene {
         try { hasNormalSave = !!localStorage.getItem('bumper_save_normal'); } catch (e) { }
         try { hasInfSave = !!localStorage.getItem('bumper_save_infinite'); } catch (e) { }
 
-        // 3 fixed buttons — normal and infinite each auto-resume their own save
         const btnDefs = [
             {
                 label: 'ИГРАТЬ',
-                sub: '(выбрать уровень)',
+                sub: hasNormalSave ? '(продолжить)' : '(выбрать уровень)',
                 clr: 0x44ff88, bg: 0x0d2818, bgH: 0x1a4828,
                 action: () => this.scene.start('LevelSelectScene'), pulse: true
             },
@@ -3742,12 +3834,6 @@ class StartScene extends Phaser.Scene {
                 clr: 0x44aaff, bg: 0x07101f, bgH: 0x0e1f40,
                 action: () => this.scene.start('MainScene', { mode: 'infinite' })
             },
-            {
-                label: 'УРОВНИ',
-                sub: null,
-                clr: 0xffcc44, bg: 0x1a1500, bgH: 0x2a2200,
-                action: () => this.scene.start('LevelSelectScene')
-            }
         ];
 
         const bw = 290, bh = 64, bx = W / 2 - bw / 2;
@@ -4361,7 +4447,6 @@ class LevelSelectScene extends Phaser.Scene {
     constructor() { super('LevelSelectScene'); }
     preload() { _preloadGameFont(this); }
     create() {
-        this._seedDefaultLevels();
         const W = 760, H = 870;
         const ch = (n) => '#' + n.toString(16).padStart(6, '0');
         const GF = _initGameFont(this);
@@ -4441,11 +4526,10 @@ class LevelSelectScene extends Phaser.Scene {
 
         // Action buttons (hidden until level selected)
         const actY = panY + 90;
-        const BW2 = 230, BH2 = 58, gap2 = 16;
-        const playX = W / 2 - BW2 - gap2 / 2;
-        const editX = W / 2 + gap2 / 2;
+        const BW2 = 260, BH2 = 58;
+        const playX = W / 2 - BW2 / 2;
 
-        // ИГРАТЬ button (left)
+        // ИГРАТЬ button (centered)
         const playGfx = this.add.graphics();
         const drawPlay = (hov) => {
             playGfx.clear();
@@ -4455,118 +4539,31 @@ class LevelSelectScene extends Phaser.Scene {
             playGfx.strokeRoundedRect(playX, actY, BW2, BH2, 12);
         };
         drawPlay(false);
-        const playTxt = this.add.bitmapText(playX + BW2 / 2, actY + BH2 / 2, GF, '▶  ИГРАТЬ', 26).setOrigin(0.5).setTint(0x44aaff);
-        const playHit = this.add.rectangle(playX + BW2 / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
+        const playTxt = this.add.bitmapText(W / 2, actY + BH2 / 2, GF, '▶  ИГРАТЬ', 30).setOrigin(0.5).setTint(0x44aaff);
+        const playHit = this.add.rectangle(W / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
         playHit.on('pointerover', () => drawPlay(true));
         playHit.on('pointerout', () => drawPlay(false));
         playHit.on('pointerdown', () => {
             if (!this._selectedLevel) return;
-            let customWalls = [], lightTheme = false, targetMoney = null;
-            try {
-                const raw = localStorage.getItem(`bumper_level_${this._selectedLevel}`);
-                if (raw) {
-                    const D = 36, GSX = 200, GSY = 118;
-                    const parsed = JSON.parse(raw);
-                    const walls = Array.isArray(parsed) ? parsed : (parsed.walls || []);
-                    lightTheme = !Array.isArray(parsed) && !!(parsed.lightTheme);
-                    if (!Array.isArray(parsed) && parsed.targetMoney) targetMoney = parsed.targetMoney;
-                    walls.forEach(w => {
-                        const _cw = { x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null };
-                        if (w.type === 'teleport' && w.partnerCol !== undefined) {
-                            _cw.targetX = GSX + w.partnerCol * D + D / 2;
-                            _cw.targetY = GSY + w.partnerRow * D + D / 2;
-                        }
-                        customWalls.push(_cw);
-                    });
+            const cfg = LEVEL_CONFIGS[this._selectedLevel - 1];
+            if (!cfg) return;
+            const D = 36, GSX = 200, GSY = 118;
+            const customWalls = [];
+            cfg.walls.forEach(w => {
+                const _cw = { x: GSX + w.col * D + D / 2, y: GSY + w.row * D + D / 2, specialType: w.type || null, color: w.color || null, damage: w.damage || null, incomeValue: w.incomeValue || null };
+                if (w.type === 'teleport' && w.partnerCol !== undefined) {
+                    _cw.targetX = GSX + w.partnerCol * D + D / 2;
+                    _cw.targetY = GSY + w.partnerRow * D + D / 2;
                 }
-            } catch (e) { }
-            this.scene.start('MainScene', { customWalls, testMode: true, levelNum: this._selectedLevel, lightTheme, targetMoney });
+                customWalls.push(_cw);
+            });
+            this.scene.start('MainScene', { customWalls, levelNum: this._selectedLevel, lightTheme: cfg.lightTheme, targetMoney: cfg.targetMoney });
         });
 
-        // РЕДАКТИРОВАТЬ button (right)
-        const editGfx = this.add.graphics();
-        const drawEdit = (hov) => {
-            editGfx.clear();
-            editGfx.fillStyle(hov ? 0x1a3a18 : 0x0d2010, 1);
-            editGfx.fillRoundedRect(editX, actY, BW2, BH2, 12);
-            editGfx.lineStyle(2.5, 0x44ff88, hov ? 1 : 0.75);
-            editGfx.strokeRoundedRect(editX, actY, BW2, BH2, 12);
-        };
-        drawEdit(false);
-        const editTxt = this.add.bitmapText(editX + BW2 / 2, actY + BH2 / 2, GF, '✏  РЕДАКТИРОВАТЬ', 20).setOrigin(0.5).setTint(0x44ff88);
-        const editHit = this.add.rectangle(editX + BW2 / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
-        editHit.on('pointerover', () => drawEdit(true));
-        editHit.on('pointerout', () => drawEdit(false));
-        editHit.on('pointerdown', () => {
-            if (this._selectedLevel) this.scene.start('EditorScene', { levelNum: this._selectedLevel });
-        });
-
-        [playGfx, playTxt, playHit, editGfx, editTxt, editHit].forEach(o => o.setVisible(false));
-        this._actionObjs = [playGfx, playTxt, playHit, editGfx, editTxt, editHit];
+        [playGfx, playTxt, playHit].forEach(o => o.setVisible(false));
+        this._actionObjs = [playGfx, playTxt, playHit];
         this._drawPlay = drawPlay;
-        this._drawEdit = drawEdit;
-    }
-
-    _seedDefaultLevels() {
-        const b = (col, row, color) => ({ col, row, type: 'boundary', color: color || 0x3366cc });
-        const s = (col, row) => ({ col, row, type: 'slow' });
-        const t = (col, row, dmg) => ({ col, row, type: 'trap', damage: dmg || 2 });
-        const z = (col, row) => ({ col, row, type: 'zone' });
-
-        const levels = [
-            // ── Уровень 1 – пустое поле (обучение) ───────────────────
-            [],
-            // ── Уровень 2 – «Каналы» ──────────────────────────────────
-            // Два горизонтальных барьера сверху и снизу, зоны по бокам, один замедлитель
-            [
-                b(0, 2, 0x44bb44), b(1, 2, 0x44bb44), b(2, 2, 0x44bb44),
-                b(7, 2, 0x44bb44), b(8, 2, 0x44bb44), b(9, 2, 0x44bb44),
-                b(0, 7, 0x44bb44), b(1, 7, 0x44bb44), b(2, 7, 0x44bb44),
-                b(7, 7, 0x44bb44), b(8, 7, 0x44bb44), b(9, 7, 0x44bb44),
-                z(0, 4), z(9, 4), z(0, 5), z(9, 5),
-                s(4, 4),
-            ],
-            // ── Уровень 3 – «Крест» ───────────────────────────────────
-            // Крест из блоков делит поле на четыре секции, зоны по углам, ловушки + лёд в центре
-            [
-                b(4, 1, 0xaa4444), b(5, 1, 0xaa4444), b(4, 2, 0xaa4444), b(5, 2, 0xaa4444),
-                b(1, 4, 0xaa4444), b(2, 4, 0xaa4444), b(7, 4, 0xaa4444), b(8, 4, 0xaa4444),
-                b(1, 5, 0xaa4444), b(2, 5, 0xaa4444), b(7, 5, 0xaa4444), b(8, 5, 0xaa4444),
-                b(4, 7, 0xaa4444), b(5, 7, 0xaa4444), b(4, 8, 0xaa4444), b(5, 8, 0xaa4444),
-                z(1, 1), z(8, 1), z(1, 8), z(8, 8),
-                t(4, 4, 2), t(5, 5, 2),
-                s(4, 5),
-            ],
-            // ── Уровень 4 – «Лабиринт» ───────────────────────────────
-            // П-образная стена слева, зеркальная справа, ловушки и замедлители в проходах
-            [
-                b(1, 1, 0x9944cc), b(2, 1, 0x9944cc), b(3, 1, 0x9944cc),
-                b(3, 2, 0x9944cc),
-                b(3, 3, 0x9944cc), b(4, 3, 0x9944cc), b(5, 3, 0x9944cc),
-                b(3, 6, 0x9944cc), b(4, 6, 0x9944cc), b(5, 6, 0x9944cc),
-                b(3, 7, 0x9944cc),
-                b(3, 8, 0x9944cc), b(4, 8, 0x9944cc), b(5, 8, 0x9944cc),
-                z(6, 2), z(0, 4), z(0, 9), z(9, 9),
-                s(1, 5), s(7, 5),
-                t(8, 4, 4), t(6, 9, 4),
-            ],
-            // ── Уровень 5 – «Арена» ──────────────────────────────────
-            // Арена с рамкой из бамперов, ловушки в 4 квадрантах, лёд в центре, зоны в углах
-            [
-                b(1, 1, 0xcc8833), b(4, 1, 0xcc8833), b(5, 1, 0xcc8833), b(8, 1, 0xcc8833),
-                b(1, 2, 0xcc8833), b(8, 2, 0xcc8833),
-                b(1, 7, 0xcc8833), b(8, 7, 0xcc8833),
-                b(1, 8, 0xcc8833), b(4, 8, 0xcc8833), b(5, 8, 0xcc8833), b(8, 8, 0xcc8833),
-                s(4, 4), s(5, 4), s(5, 5),
-                t(3, 3, 4), t(6, 3, 4), t(3, 6, 5), t(6, 6, 5),
-                z(0, 5), z(9, 5), z(0, 9), z(9, 9),
-            ],
-        ];
-
-        levels.forEach((walls, i) => {
-            const key = `bumper_level_${i + 1}`;
-            try { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(walls)); } catch (e) { }
-        });
+        this._drawEdit = () => {};
     }
 
     _selectLevel(lvl) {
