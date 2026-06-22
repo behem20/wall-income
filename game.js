@@ -2351,18 +2351,20 @@ class MainScene extends Phaser.Scene {
     }
 
     buyBall() {
+        const ballCount = this.ballsGroup.getLength();
+        const upgradable = this.ballsGroup.getChildren().filter(b => !b.multiplier || b.multiplier < 3);
+        const maxReached = ballCount >= 12 && upgradable.length === 0;
+        if (maxReached) { this._showNotEnoughMoney(167); return; }
         if (this.money < this.ballCost) { this._showNotEnoughMoney(167); return; }
         this.money -= this.ballCost;
         this.buttonBall.level = (this.buttonBall.level || 0) + 1;
         const _bt = [20, 200, 800, 2000, 4000, 8000, 12000, 16000, 24000, 28000, 32000];
         this.ballCost = _bt[Math.min(this.buttonBall.level, _bt.length - 1)];
         this.playSound('buy');
-        const ballCount = this.ballsGroup.getLength();
         if (ballCount < 12) {
             this.createBall();
         } else {
-            const upgradable = this.ballsGroup.getChildren().filter(b => !b.multiplier || b.multiplier < 3);
-            if (upgradable.length > 0) this._upgradeBall(Phaser.Utils.Array.GetRandom(upgradable));
+            this._upgradeBall(Phaser.Utils.Array.GetRandom(upgradable));
         }
         this._flashPurchase(167, this.btnY);
         this.time.delayedCall(80, () => { this._playSpawnFlash(167, this.btnY, 0.85); });
@@ -2372,10 +2374,16 @@ class MainScene extends Phaser.Scene {
 
     _upgradeBall(ball) {
         ball.multiplier = Math.min((ball.multiplier || 1) + 1, 3);
-        const _cols = { 2: { fill: 0xff8833, stroke: 0xffdd00 }, 3: { fill: 0xff3300, stroke: 0xffee44 } };
+        const _cols = {
+            2: { fill: 0xff8833, stroke: 0xffdd00, trail: 0xffaa44 },
+            3: { fill: 0xff3300, stroke: 0xffee44, trail: 0xff6622 }
+        };
         const c = _cols[ball.multiplier];
         ball.setFillStyle(c.fill);
         ball.setStrokeStyle(1, c.stroke);
+        if (ball.trail && ball.trail.active) {
+            ball.trail.setParticleTint(c.trail);
+        }
         if (ball._multLabel && ball._multLabel.active) {
             ball._multLabel.setText(`x${ball.multiplier}`);
         } else {
@@ -2418,6 +2426,11 @@ class MainScene extends Phaser.Scene {
     buyIncomeUpgrade() {
         if (this.money < this.incomeCost) { this._showNotEnoughMoney(593); return; }
         this.money -= this.incomeCost; this.playSound('buy');
+        const _playAnim = !this._incomeUpgradeAnimPending;
+        if (_playAnim) {
+            this._incomeUpgradeAnimPending = true;
+            this.time.delayedCall(50, () => { this._incomeUpgradeAnimPending = false; });
+        }
         const slotOldVals = this.wallHand.map(item => item ? item.incomeValue : null);
         this.wallsGroup.children.iterate(wall => {
             if (!wall || wall.incomeValue === 0) return;
@@ -2425,7 +2438,7 @@ class MainScene extends Phaser.Scene {
             const pct = 0.08 + Math.random() * 0.03;
             wall.incomeValue = Math.ceil(oldVal + 1 + oldVal * pct);
             this._refreshWallTexture(wall);
-            this._animateIncomeUpgrade(wall, oldVal, wall.incomeValue);
+            if (_playAnim) this._animateIncomeUpgrade(wall, oldVal, wall.incomeValue);
         });
         this.wallHand.forEach(item => {
             if (item) { const p = 0.08 + Math.random() * 0.03; item.incomeValue = Math.ceil(item.incomeValue + 1 + item.incomeValue * p); }
@@ -2639,12 +2652,7 @@ class MainScene extends Phaser.Scene {
     }
 
     _genWallItem(types, withBonus = true) {
-        const _zr = Math.random();
-        let type;
-        const _lvl = this.registry.get('level') || 1;
-        if (_lvl > 1 && _zr < 0.02) { type = 'goldZone'; }
-        else if (_lvl > 1 && _zr < 0.06) { type = 'silverZone'; }
-        else { type = Phaser.Math.RND.pick(types); }
+        let type = Phaser.Math.RND.pick(types);
         let incomeValue = Phaser.Math.Between(1, 3);
         let bonus = false;
         if (withBonus && Math.random() < 0.25 && type !== 'silverZone' && type !== 'goldZone') {
@@ -3877,6 +3885,19 @@ class StartScene extends Phaser.Scene {
             if (def.pulse) this.tweens.add({ targets: txt, scaleX: 1.05, scaleY: 1.05, duration: 750, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
             cy += bh + 12;
         });
+
+        // Hidden dev button — triple-tap bottom-left corner (invisible)
+        let _devTaps = 0, _devTimer = null;
+        const _devHit = this.add.rectangle(40, H - 40, 80, 80, 0, 0).setInteractive();
+        _devHit.on('pointerdown', () => {
+            _devTaps++;
+            if (_devTimer) clearTimeout(_devTimer);
+            _devTimer = setTimeout(() => { _devTaps = 0; }, 1500);
+            if (_devTaps >= 3) {
+                _devTaps = 0;
+                this.scene.start('LevelSelectScene');
+            }
+        });
     }
 }
 
@@ -4375,7 +4396,11 @@ class EditorScene extends Phaser.Scene {
                     }
                     walls.push(_se);
                 }
-        try { localStorage.setItem(this._levelKey(), JSON.stringify({ walls, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney })); } catch (e) { }
+        const _saveData = { walls, lightTheme: this.lightTheme, targetMoney: this.editorTargetMoney };
+        try { localStorage.setItem(this._levelKey(), JSON.stringify(_saveData)); } catch (e) { }
+        if (this.levelNum && this.levelNum >= 1 && this.levelNum <= LEVEL_CONFIGS.length) {
+            LEVEL_CONFIGS[this.levelNum - 1] = _saveData;
+        }
         const txt = this.add.bitmapText(this.GSX + (this.COLS * this.D) / 2, this.GSY + (this.ROWS * this.D) / 2, this._gf, 'СОХРАНЕНО!', 38).setOrigin(0.5).setDepth(10).setTint(0x44ff88);
         this.tweens.add({ targets: txt, alpha: 0, y: txt.y - 40, duration: 1200, ease: 'Power2', onComplete: () => txt.destroy() });
     }
@@ -4492,9 +4517,10 @@ class LevelSelectScene extends Phaser.Scene {
         backHit.on('pointerout', () => drawBack(false));
         backHit.on('pointerdown', () => this.scene.start('StartScene'));
 
-        // Level grid 10×5 = 50 levels
-        const COLS = 10, TOTAL = 50;
-        const BW = 62, BH = 54, GAP = 4;
+        // Level grid — only LEVEL_CONFIGS.length levels
+        const TOTAL = LEVEL_CONFIGS.length;
+        const COLS = 5;
+        const BW = 100, BH = 60, GAP = 10;
         const gridW = COLS * (BW + GAP) - GAP;
         const startX = (W - gridW) / 2;
         const startY = 100;
@@ -4509,20 +4535,16 @@ class LevelSelectScene extends Phaser.Scene {
             const bx = startX + col * (BW + GAP) + BW / 2;
             const by = startY + row * (BH + GAP) + BH / 2;
 
-            let hasSave = false;
-            try { hasSave = !!localStorage.getItem(`bumper_level_${lvl}`); } catch (e) { }
-
             const gfx = this.add.graphics();
             const draw = (sel) => {
                 gfx.clear();
-                gfx.fillStyle(sel ? 0x1a3a18 : (hasSave ? 0x0d2018 : 0x0e1524), 1);
+                gfx.fillStyle(sel ? 0x1a3a18 : 0x0e1524, 1);
                 gfx.fillRoundedRect(bx - BW / 2, by - BH / 2, BW, BH, 7);
-                gfx.lineStyle(2, sel ? 0x44ff88 : (hasSave ? 0x2a6640 : 0x223355), sel ? 1 : 0.7);
+                gfx.lineStyle(2, sel ? 0x44ff88 : 0x223355, sel ? 1 : 0.7);
                 gfx.strokeRoundedRect(bx - BW / 2, by - BH / 2, BW, BH, 7);
             };
             draw(false);
-            this.add.bitmapText(bx, by - (hasSave ? 8 : 0), GF, `${lvl}`, 20).setOrigin(0.5).setTint(hasSave ? 0x44ff88 : 0x8899aa);
-            if (hasSave) this.add.bitmapText(bx, by + 14, GF, '✓', 13).setOrigin(0.5).setTint(0x44ff88);
+            this.add.bitmapText(bx, by, GF, `${lvl}`, 24).setOrigin(0.5).setTint(0x8899aa);
 
             this._btnDraw.push({ lvl, draw });
 
@@ -4531,7 +4553,8 @@ class LevelSelectScene extends Phaser.Scene {
         }
 
         // Action panel (shown after selecting a level)
-        const panY = startY + 5 * (BH + GAP) + 30;
+        const rows = Math.ceil(TOTAL / COLS);
+        const panY = startY + rows * (BH + GAP) + 20;
 
         const hintGfx = this.add.graphics();
         hintGfx.fillStyle(0x0d1824, 0.7);
@@ -4541,27 +4564,13 @@ class LevelSelectScene extends Phaser.Scene {
         this._hintTxt = this.add.bitmapText(W / 2, panY + 28, GF, 'Выберите уровень', 22).setOrigin(0.5).setTint(0x556677);
 
         // Action buttons (hidden until level selected)
-        const actY = panY + 90;
-        const BW2 = 260, BH2 = 58;
-        const playX = W / 2 - BW2 / 2;
+        const actY = panY + 75;
+        const BW2 = 220, BH2 = 56, gap2 = 14;
+        const playX = W / 2 - BW2 - gap2 / 2;
+        const editX = W / 2 + gap2 / 2;
 
-        // ИГРАТЬ button (centered)
-        const playGfx = this.add.graphics();
-        const drawPlay = (hov) => {
-            playGfx.clear();
-            playGfx.fillStyle(hov ? 0x0a1a3a : 0x060e20, 1);
-            playGfx.fillRoundedRect(playX, actY, BW2, BH2, 12);
-            playGfx.lineStyle(2.5, 0x44aaff, hov ? 1 : 0.75);
-            playGfx.strokeRoundedRect(playX, actY, BW2, BH2, 12);
-        };
-        drawPlay(false);
-        const playTxt = this.add.bitmapText(W / 2, actY + BH2 / 2, GF, '▶  ИГРАТЬ', 30).setOrigin(0.5).setTint(0x44aaff);
-        const playHit = this.add.rectangle(W / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
-        playHit.on('pointerover', () => drawPlay(true));
-        playHit.on('pointerout', () => drawPlay(false));
-        playHit.on('pointerdown', () => {
-            if (!this._selectedLevel) return;
-            const cfg = LEVEL_CONFIGS[this._selectedLevel - 1];
+        const _launchLevel = (lvlNum) => {
+            const cfg = LEVEL_CONFIGS[lvlNum - 1];
             if (!cfg) return;
             const D = 36, GSX = 200, GSY = 118;
             const customWalls = [];
@@ -4573,13 +4582,45 @@ class LevelSelectScene extends Phaser.Scene {
                 }
                 customWalls.push(_cw);
             });
-            this.scene.start('MainScene', { customWalls, levelNum: this._selectedLevel, lightTheme: cfg.lightTheme, targetMoney: cfg.targetMoney });
-        });
+            this.scene.start('MainScene', { customWalls, testMode: true, levelNum: lvlNum, lightTheme: cfg.lightTheme, targetMoney: cfg.targetMoney });
+        };
 
-        [playGfx, playTxt, playHit].forEach(o => o.setVisible(false));
-        this._actionObjs = [playGfx, playTxt, playHit];
+        // ТЕСТ button (left)
+        const playGfx = this.add.graphics();
+        const drawPlay = (hov) => {
+            playGfx.clear();
+            playGfx.fillStyle(hov ? 0x0a1a3a : 0x060e20, 1);
+            playGfx.fillRoundedRect(playX, actY, BW2, BH2, 12);
+            playGfx.lineStyle(2.5, 0x44aaff, hov ? 1 : 0.75);
+            playGfx.strokeRoundedRect(playX, actY, BW2, BH2, 12);
+        };
+        drawPlay(false);
+        const playTxt = this.add.bitmapText(playX + BW2 / 2, actY + BH2 / 2, GF, '▶  ТЕСТ', 26).setOrigin(0.5).setTint(0x44aaff);
+        const playHit = this.add.rectangle(playX + BW2 / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
+        playHit.on('pointerover', () => drawPlay(true));
+        playHit.on('pointerout', () => drawPlay(false));
+        playHit.on('pointerdown', () => { if (this._selectedLevel) _launchLevel(this._selectedLevel); });
+
+        // РЕДАКТИРОВАТЬ button (right)
+        const editGfx = this.add.graphics();
+        const drawEdit = (hov) => {
+            editGfx.clear();
+            editGfx.fillStyle(hov ? 0x1a3a18 : 0x0d2010, 1);
+            editGfx.fillRoundedRect(editX, actY, BW2, BH2, 12);
+            editGfx.lineStyle(2.5, 0x44ff88, hov ? 1 : 0.75);
+            editGfx.strokeRoundedRect(editX, actY, BW2, BH2, 12);
+        };
+        drawEdit(false);
+        const editTxt = this.add.bitmapText(editX + BW2 / 2, actY + BH2 / 2, GF, '✏  РЕДАКТИРОВАТЬ', 20).setOrigin(0.5).setTint(0x44ff88);
+        const editHit = this.add.rectangle(editX + BW2 / 2, actY + BH2 / 2, BW2, BH2, 0, 0).setInteractive({ useHandCursor: true });
+        editHit.on('pointerover', () => drawEdit(true));
+        editHit.on('pointerout', () => drawEdit(false));
+        editHit.on('pointerdown', () => { if (this._selectedLevel) this.scene.start('EditorScene', { levelNum: this._selectedLevel }); });
+
+        [playGfx, playTxt, playHit, editGfx, editTxt, editHit].forEach(o => o.setVisible(false));
+        this._actionObjs = [playGfx, playTxt, playHit, editGfx, editTxt, editHit];
         this._drawPlay = drawPlay;
-        this._drawEdit = () => {};
+        this._drawEdit = drawEdit;
     }
 
     _selectLevel(lvl) {
