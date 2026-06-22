@@ -3892,6 +3892,12 @@ class StartScene extends Phaser.Scene {
                 clr: 0x44aaff, bg: 0x07101f, bgH: 0x0e1f40,
                 action: () => this.scene.start('MainScene', { mode: 'infinite' })
             },
+            {
+                label: '☰  ВЫБОР УРОВНЯ',
+                sub: null,
+                clr: 0xffcc44, bg: 0x1a1400, bgH: 0x2a2200,
+                action: () => this.scene.start('LevelSelectScene')
+            },
         ];
 
         const bw = 290, bh = 64, bx = W / 2 - bw / 2;
