@@ -94,11 +94,9 @@ const LEVEL_CONFIGS = [
     { walls: [], targetMoney: 2000, lightTheme: false },
     // Уровень 2
     { walls: [
-        {col:1,row:1,type:"slow"},{col:2,row:1,type:"slow"},{col:3,row:1,type:"slow"},{col:6,row:1,type:"slow"},{col:7,row:1,type:"slow"},{col:8,row:1,type:"slow"},
-        {col:1,row:2,type:"slow"},{col:8,row:2,type:"slow"},{col:1,row:3,type:"slow"},{col:8,row:3,type:"slow"},
+        {col:1,row:1,type:"slow"},{col:8,row:1,type:"slow"},
         {col:4,row:4,type:"income"},{col:5,row:4,type:"income"},{col:4,row:5,type:"income"},{col:5,row:5,type:"income"},
-        {col:1,row:6,type:"slow"},{col:8,row:6,type:"slow"},{col:1,row:7,type:"slow"},{col:8,row:7,type:"slow"},
-        {col:1,row:8,type:"slow"},{col:2,row:8,type:"slow"},{col:3,row:8,type:"slow"},{col:6,row:8,type:"slow"},{col:7,row:8,type:"slow"},{col:8,row:8,type:"slow"},
+        {col:1,row:8,type:"slow"},{col:8,row:8,type:"slow"},
     ], targetMoney: 2500, lightTheme: false },
     // Уровень 3
     { walls: [
@@ -175,7 +173,7 @@ class MainScene extends Phaser.Scene {
         if (this.testMode) return;
         const walls = [];
         this.wallsGroup.children.iterate(w => {
-            if (w) walls.push({ x: w.x, y: w.y, type: w.wallType, incomeValue: w.incomeValue, specialType: w.specialType || null });
+            if (w && !w.isEditorWall && !w._isMysteryBox && !w.isBoundary) walls.push({ x: w.x, y: w.y, type: w.wallType, incomeValue: w.incomeValue, specialType: w.specialType || null });
         });
         const state = {
             mode: this.infiniteMode ? 'infinite' : 'normal',
@@ -205,7 +203,7 @@ class MainScene extends Phaser.Scene {
         for (let i = 0; i < bCount; i++) this.createBall();
         // Destroy initial hand walls placed by create(), then restore saved ones
         this.wallsGroup.getChildren().slice().forEach(w => {
-            if (w && w.active) {
+            if (w && w.active && !w.isEditorWall && !w._isMysteryBox) {
                 if (w._fillGfx && w._fillGfx !== w && w._fillGfx.active) w._fillGfx.destroy();
                 if (w._outlineGfx && w._outlineGfx.active) w._outlineGfx.destroy();
                 if (w.valueText && w.valueText.active) w.valueText.destroy();
@@ -215,11 +213,12 @@ class MainScene extends Phaser.Scene {
         this.placedWalls = 0;
         if (d.placedWalls) {
             d.placedWalls.forEach(pw => {
+                if (!(pw.incomeValue > 0)) return;
                 const { w, h } = this.getWallDims(pw.type);
                 const wall = this.createWall(pw.x, pw.y, w, h, pw.type, pw.incomeValue);
                 if (pw.specialType) this._applySpecialWallStyle(wall, pw.specialType);
             });
-            this.placedWalls = d.placedWalls.length;
+            this.placedWalls = d.placedWalls.filter(pw => pw.incomeValue > 0).length;
         }
         this.updateSlotsUI(); this.updateUI();
     }
@@ -330,7 +329,7 @@ class MainScene extends Phaser.Scene {
                     _tutLaunched = true;
                     this.scene.launch('TutorialScene');
                 };
-                this.time.delayedCall(20000, _launch);
+                this.time.delayedCall(500, _launch);
                 const _check = () => {
                     if (_tutLaunched || !this.scene.isActive()) return;
                     if ((this.totalEarned || 0) >= 500) { _launch(); return; }
@@ -1625,8 +1624,7 @@ class MainScene extends Phaser.Scene {
             const y0 = btn.cy - 118;
             const hint = this.add.bitmapText(btn.cx, y0 - 48, this._gf, '↓ купи меня', 20)
                 .setOrigin(0.5).setDepth(36).setTint(0xffffff).setAlpha(0);
-            if (hint.postFX) hint.postFX.addGlow(0xffee22, 6, 0);
-            else if (hint.preFX) hint.preFX.addGlow(0xffee22, 6, 0);
+            
             this._nudgeHints.push(hint);
 
             this.tweens.add({
@@ -1687,29 +1685,29 @@ class MainScene extends Phaser.Scene {
         const cx = validX[0];
         const arrowTop = sy - 130;
 
-        const gfx = this.add.graphics().setDepth(35).setAlpha(0);
-        gfx.fillStyle(0x88ccff, 1);
-        gfx.fillTriangle(cx - 11, arrowTop + 20, cx + 11, arrowTop + 20, cx, arrowTop);
-        gfx.lineStyle(2.5, 0x88ccff, 0.9);
-        gfx.beginPath();
-        gfx.moveTo(cx, arrowTop + 20);
-        gfx.lineTo(cx, arrowTop + 38);
-        gfx.strokePath();
+        // const gfx = this.add.graphics().setDepth(35).setAlpha(0);
+        // gfx.fillStyle(0x88ccff, 1);
+        // gfx.fillTriangle(cx - 11, arrowTop + 20, cx + 11, arrowTop + 20, cx, arrowTop);
+        // gfx.lineStyle(2.5, 0x88ccff, 0.9);
+        // gfx.beginPath();
+        // gfx.moveTo(cx, arrowTop + 20);
+        // gfx.lineTo(cx, arrowTop + 38);
+        // gfx.strokePath();
 
         const txt = this.add.bitmapText(cx, arrowTop + 44, this._gf, 'СТАВЬ СТЕНЫ', 16)
             .setOrigin(0.5, 0).setDepth(36).setTint(0x88ccff).setAlpha(0);
-        if (txt.postFX) txt.postFX.addGlow(0x4488ff, 4, 0);
+       
 
         this.tweens.add({
-            targets: [gfx, txt], alpha: 1, duration: 320,
+            targets: [ txt], alpha: 1, duration: 320,
             onComplete: () => {
                 this.tweens.add({
                     targets: txt, y: arrowTop + 44 - 12,
                     duration: 370, yoyo: true, repeat: 5, ease: 'Sine.easeInOut',
                     onComplete: () => {
                         this.tweens.add({
-                            targets: [gfx, txt], alpha: 0, duration: 300,
-                            onComplete: () => { gfx.destroy(); txt.destroy(); this._wallHintActive = false; }
+                            targets: [ txt], alpha: 0, duration: 300,
+                            onComplete: () => {  txt.destroy(); this._wallHintActive = false; }
                         });
                     }
                 });
@@ -2439,8 +2437,7 @@ class MainScene extends Phaser.Scene {
         this.playSound('error');
         const lbl = this.add.bitmapText(cx, (this.btnY || 790) - 90, this._gf, 'накопи долларов!', 18)
             .setOrigin(0.5).setDepth(36).setTint(0xff6644).setAlpha(0);
-        if (lbl.postFX) lbl.postFX.addGlow(0xff4422, 4, 0);
-        else if (lbl.preFX) lbl.preFX.addGlow(0xff4422, 4, 0);
+        
         this.tweens.add({ targets: lbl, alpha: 1, y: (this.btnY || 790) - 104, duration: 250, ease: 'Back.Out',
             onComplete: () => this.tweens.add({ targets: lbl, alpha: 0, duration: 350, delay: 900, onComplete: () => lbl.destroy() })
         });
