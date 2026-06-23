@@ -384,6 +384,10 @@ class MainScene extends Phaser.Scene {
         // Хинт "ставь стены" на уровне 1
         this._startWallHintLoop();
 
+        // Mystery box — spawns once per game
+        this._mysteryBoxOpened = false;
+        this.time.delayedCall(0, () => this._spawnMysteryBox());
+
         // Auto-save and stop music on scene shutdown
         this.events.once('shutdown', () => { try { if (!this.gameWon) this.saveProgress(); this.stopMusic(); } catch (e) { } });
     }
@@ -1711,6 +1715,87 @@ class MainScene extends Phaser.Scene {
                 });
             }
         });
+    }
+
+    _spawnMysteryBox() {
+        if (this._mysteryBoxOpened || this.gameWon) return;
+        const margin = 44;
+        const fx = this.fieldOffsetX, fy = this.fieldOffsetY, fs = this.fieldSize;
+        const bw = 48, bh = 48;
+        const x = Phaser.Math.Between(fx + margin, fx + fs - margin);
+        const y = Phaser.Math.Between(fy + margin, fy + fs - margin);
+        const hitsNeeded = Phaser.Math.Between(100, 300);
+
+        // Base rect (physics body)
+        const box = this.add.rectangle(x, y, bw, bh, 0x8833ff);
+        box.setStrokeStyle(2, 0xcc88ff);
+        box.setDepth(12);
+        this.physics.add.existing(box, true);
+
+        // Question mark label
+        const lbl = this.add.bitmapText(x, y, this._gf, '?', 28)
+            .setOrigin(0.5).setDepth(13).setTint(0xffffff);
+
+        // Progress text below
+        const prog = this.add.bitmapText(x, y + 32, this._gf, `0/${hitsNeeded}`, 13)
+            .setOrigin(0.5, 0).setDepth(13).setTint(0xcc88ff);
+
+        box._isMysteryBox = true;
+        box._hits = 0;
+        box._hitsNeeded = hitsNeeded;
+        box._lbl = lbl;
+        box._prog = prog;
+        box.wallType = 'rect';
+        box.specialType = null;
+        box.incomeValue = 0;
+
+        this._mysteryBox = box;
+        this.wallsGroup.add(box);
+        box.body.updateFromGameObject();
+
+        // Pulse animation
+        this.tweens.add({
+            targets: box, alpha: 0.7, duration: 700,
+            yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+        });
+    }
+
+    _onMysteryBoxHit(box) {
+        if (!box || !box.active || box._opening) return;
+        box._hits++;
+        if (box._prog && box._prog.active) box._prog.setText(`${box._hits}/${box._hitsNeeded}`);
+        if (box._hits < box._hitsNeeded) return;
+
+        box._opening = true;
+        this._mysteryBoxOpened = true;
+        this._openMysteryBox(box);
+    }
+
+    _openMysteryBox(box) {
+        const x = box.x, y = box.y;
+        const reward = 500;
+        this.money += reward; this.totalEarned += reward; this._uiDirty = true;
+        this.showFloatingText(x, y, `+${reward}$`, reward);
+
+        if (box._lbl && box._lbl.active) box._lbl.destroy();
+        if (box._prog && box._prog.active) box._prog.destroy();
+
+        this.tweens.killTweensOf(box);
+        this.tweens.add({
+            targets: box, scaleX: 2.2, scaleY: 2.2, alpha: 0,
+            duration: 400, ease: 'Power2',
+            onComplete: () => { if (box && box.active) { this.wallsGroup.remove(box, true, true); } }
+        });
+
+        // Burst particles
+        const _sp = this.add.particles(0, 0, 'wallDust', {
+            lifespan: { min: 250, max: 500 }, scale: { start: 0.8, end: 0 },
+            alpha: { start: 1, end: 0 }, speed: { min: 80, max: 240 },
+            angle: { min: 0, max: 360 }, tint: [0xcc88ff, 0xffffff, 0x8833ff],
+            quantity: 24, frequency: -1,
+        }).setDepth(30);
+        _sp.explode(24, x, y);
+        this.time.delayedCall(600, () => { if (_sp && _sp.active) _sp.destroy(); });
     }
 
     _scheduleUpgradeShimmer() {
@@ -3051,6 +3136,13 @@ class MainScene extends Phaser.Scene {
                     this.time.delayedCall(400, () => { if (_sp && _sp.active) _sp.destroy(); });
                 }
                 const now = this.time.now;
+                if (wall._isMysteryBox) {
+                    if (now - (wall.lastHit || 0) >= 50) {
+                        wall.lastHit = now;
+                        this._onMysteryBoxHit(wall);
+                    }
+                    continue;
+                }
                 if (now - (wall.lastHit || 0) >= 50) {
                     wall.lastHit = now;
                     if (wall.incomeValue > 0) {
