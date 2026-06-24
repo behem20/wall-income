@@ -3801,6 +3801,7 @@ class TutorialScene extends Phaser.Scene {
 
         this._spotGfx  = this.add.graphics().setDepth(101);
         this._arrowGfx = this.add.graphics().setDepth(101.5);
+        this._silTxt   = this.add.bitmapText(0, 0, this._gf, '1$', 15).setDepth(102.5).setOrigin(0.5, 0.5).setAlpha(0).setTint(0xffffff);
         this._bubbleBg = this.add.graphics().setDepth(102);
         this._titleTxt = this.add.bitmapText(0, 0, this._gf, '', 22).setDepth(103).setTint(0x44ffaa).setOrigin(0.5, 0);
         this._bodyTxt  = this.add.bitmapText(0, 0, this._gf, '', 16).setDepth(103).setTint(0xbbccff).setOrigin(0, 0);
@@ -3850,6 +3851,13 @@ class TutorialScene extends Phaser.Scene {
         if (s.interactive === 'place_wall') {
             this._arrowOff = (this._arrowOff + 0.9) % 1000;
             this._drawDragArrow(this._arrowOff);
+            // Плавно скрываем карточку когда игрок начинает тянуть блок
+            const _isDragging = !!(m.draggingNewWall || m._carryingFieldWall);
+            const _cardTarget = _isDragging ? 0 : 1;
+            if (this._cardAlpha === undefined) this._cardAlpha = 1;
+            this._cardAlpha += (_cardTarget - this._cardAlpha) * 0.10;
+            const _ca = this._cardAlpha;
+            [this._bubbleBg, this._titleTxt, this._bodyTxt, this._btnGfx, this._btnTxt, this._stepTxt].forEach(o => { if (o) o.setAlpha(_ca); });
             if ((m.placedWalls || 0) > 0) this._advance();
         } else if (s.interactive === 'wait_coins') {
             const money = m.money || 0;
@@ -4089,19 +4097,48 @@ class TutorialScene extends Phaser.Scene {
     _drawDragArrow(offset) {
         const gfx = this._arrowGfx;
         gfx.clear();
-        const sx = 167, sy = 572, ex = 340, ey = 310;
+
+        const _ms = this.scene.get('MainScene');
+        const _slotY = (_ms && _ms.slotY) || (_isPhoneLayout ? 900 : 600);
+        const _fOX   = (_ms && _ms.fieldOffsetX) || (_isPhoneLayout ? 38 : 184);
+        const _fOY   = (_ms && _ms.fieldOffsetY) || (_isPhoneLayout ? 205 : 102);
+        const _fSz   = (_ms && _ms.fieldSize)    || (_isPhoneLayout ? 684 : 392);
+
+        const _slotXs = [160, 380, 600];
+        // 4 different field targets cycling independently
+        const _targets = [
+            [0.28, 0.30],
+            [0.60, 0.48],
+            [0.32, 0.66],
+            [0.55, 0.25],
+        ];
+
+        // Advance slot & target on each phase wrap
+        const prevPhase = this._handPhase || 0;
+        this._handPhase = (prevPhase + 0.009) % 1;
+        if (this._handPhase < prevPhase) {
+            this._arrowSlotIdx  = ((this._arrowSlotIdx  || 0) + 1) % 3;
+            this._arrowTargetIdx = ((this._arrowTargetIdx || 0) + 1) % 4;
+        }
+
+        const sx = _slotXs[this._arrowSlotIdx || 0], sy = _slotY;
+        const [tx, ty] = _targets[this._arrowTargetIdx || 0];
+        const ex = Math.round(_fOX + _fSz * tx), ey = Math.round(_fOY + _fSz * ty);
+
         const dx = ex - sx, dy = ey - sy;
         const len = Math.sqrt(dx * dx + dy * dy);
         const cos = dx / len, sin = dy / len;
         const dashLen = 15, gap = 9, period = dashLen + gap, stopBefore = 16;
 
+        // Pulsing dot at start (current slot)
         const pulse = 0.55 + 0.45 * Math.sin(offset * 0.18);
         gfx.fillStyle(0xffffff, 0.85 * pulse);
         gfx.fillCircle(sx, sy, 7 + 3 * pulse);
         gfx.lineStyle(2, 0x44ffaa, pulse);
         gfx.strokeCircle(sx, sy, 7 + 3 * pulse);
 
-        let d = -(offset % period);
+        // Dashed line
+        let d = (offset % period) - period;
         while (d < len - stopBefore) {
             const d0 = Math.max(0, d), d1 = Math.min(len - stopBefore, d + dashLen);
             if (d1 > d0) {
@@ -4113,6 +4150,8 @@ class TutorialScene extends Phaser.Scene {
             }
             d += period;
         }
+
+        // Arrowhead
         const angle = Math.atan2(dy, dx);
         gfx.lineStyle(3, 0x44ffaa, 1);
         [angle - 0.42, angle + 0.42].forEach(a => {
@@ -4120,9 +4159,51 @@ class TutorialScene extends Phaser.Scene {
             gfx.lineTo(ex - 13 * Math.cos(a), ey - 13 * Math.sin(a)); gfx.strokePath();
         });
         gfx.fillStyle(0x44ffaa, 1); gfx.fillCircle(ex, ey, 4);
+
+        // Animated cursor: 0→0.60 move, 0.60→0.78 pulse at field, 0.78→0.92 fade, 0.92→1 invisible
+        const hp = this._handPhase;
+        const moveT = Math.min(1, hp / 0.60);
+        const ease = moveT < 0.5 ? 2 * moveT * moveT : 1 - Math.pow(-2 * moveT + 2, 2) / 2;
+        const hAlpha = hp > 0.92 ? 0 : hp > 0.78 ? 1 - (hp - 0.78) / 0.14 : 1;
+
+        if (hAlpha > 0) {
+            const hx = sx + (ex - sx) * ease;
+            const hy = sy + (ey - sy) * ease;
+            const isPaused = hp >= 0.60 && hp < 0.78;
+            const ringScale = isPaused ? 1 + 0.35 * Math.sin((hp - 0.60) / 0.18 * Math.PI * 3) : 1;
+
+            // Wall block silhouette above cursor
+            const _br = (_ms && _ms.BALL_R) || (_isPhoneLayout ? 31 : 18);
+            const _bw = Math.round(_br * 1.9);
+            const _bx = hx - _bw / 2, _by = hy - _bw * 1.15;
+            gfx.fillStyle(0x1a3a88, 0.42 * hAlpha);
+            gfx.fillRoundedRect(_bx, _by, _bw, _bw, 6);
+            gfx.lineStyle(1.5, 0x55aaff, 0.60 * hAlpha);
+            gfx.strokeRoundedRect(_bx, _by, _bw, _bw, 6);
+            // subtle inner highlight
+            gfx.lineStyle(1, 0xaaddff, 0.22 * hAlpha);
+            gfx.strokeRoundedRect(_bx + 3, _by + 3, _bw - 6, _bw - 6, 4);
+
+            // Cursor rings
+            gfx.fillStyle(0xffffff, 0.90 * hAlpha);
+            gfx.fillCircle(hx, hy, 10);
+            gfx.lineStyle(2.5, 0x44ffaa, 0.80 * hAlpha);
+            gfx.strokeCircle(hx, hy, 17 * ringScale);
+            gfx.lineStyle(1.5, 0xffffff, 0.35 * hAlpha);
+            gfx.strokeCircle(hx, hy, 26 * ringScale);
+
+            // Money label on silhouette
+            if (this._silTxt) {
+                this._silTxt.setPosition(hx, _by + _bw * 0.5).setAlpha(hAlpha * 0.90);
+            }
+        } else {
+            if (this._silTxt) this._silTxt.setAlpha(0);
+        }
     }
 
     _advance() {
+        if (this._silTxt) this._silTxt.setAlpha(0);
+        this._cardAlpha = undefined;
         // Чистим демо-объекты если уходим с trap_demo шага
         if (this._demoObjs) {
             this._demoObjs.forEach(o => { if (o && o.active) o.destroy(); });
