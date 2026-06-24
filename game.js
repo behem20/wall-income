@@ -225,14 +225,20 @@ class MainScene extends Phaser.Scene {
 
 
     create() {
-        this.BALL_R = 18;
-        this.fieldSize = 392;
-        this.fieldOffsetX = 184;
-        this.fieldOffsetY = 102;
+        this._scH = _mobileScH;
+        const _fScale = _isPhoneLayout ? (760 * 0.9) / 392 : 1;
+        this._fScale = _fScale;
+        this.BALL_R = Math.round(18 * _fScale);
+        this.fieldSize = Math.round(392 * _fScale);
+        this.fieldOffsetX = Math.round((760 - this.fieldSize) / 2);
+        this.fieldOffsetY = _isPhoneLayout ? Math.round(102 + this.fieldSize * 0.15) : 102;
         this.fieldCX = 380;
-        this.fieldCY = 298;
-        this.slotY = 605;
-        this.btnY = 790;
+        this.fieldCY = Math.round(this.fieldOffsetY + this.fieldSize / 2);
+        this._btnSc = _isPhoneLayout ? 1.25 : 1;
+        this._btnCX = _isPhoneLayout ? [130, 380, 630] : [167, 380, 593];
+        const _fieldBottom = this.fieldOffsetY + this.fieldSize;
+        this.slotY = _isPhoneLayout ? Math.round(_fieldBottom + 120 + this._scH * 0.05) : this._scH - 265;
+        this.btnY = _isPhoneLayout ? Math.round(_fieldBottom + 120 + this._scH * 0.1 + 195) : this._scH - 80;
 
         this.targetMoney = this._initTargetMoney || 2000; this.money = 0; this.totalEarned = 0; this.incomeBase = 1;
         this.placedWalls = 0; this.ballCost = 20; this.wallPackCost = 20;
@@ -260,7 +266,7 @@ class MainScene extends Phaser.Scene {
         ];
 
         // field bg — checkerboard + glow baked into one RenderTexture (single draw call per frame)
-        const _cs = 28;
+        const _cs = Math.round(this.fieldSize / 14);
         const _bgGfx = this.make.graphics({ add: false });
         if (this.lightTheme) {
             for (let r = 0; r < 14; r++)
@@ -290,7 +296,7 @@ class MainScene extends Phaser.Scene {
             _bgGfx.lineStyle(2, _glowColor, _a);
             _bgGfx.strokeRoundedRect(_gx - _spread, _gy - _spread, _gs + _spread * 2, _gs + _spread * 2, _r);
         }
-        this.add.renderTexture(0, 0, 760, 870).setDepth(0).setOrigin(0).draw(_bgGfx, 0, 0);
+        this.add.renderTexture(0, 0, 760, this._scH).setDepth(0).setOrigin(0).draw(_bgGfx, 0, 0);
         _bgGfx.destroy();
 
         if (this.lightTheme) {
@@ -341,21 +347,25 @@ class MainScene extends Phaser.Scene {
         // Place any editor-defined custom walls
         if (this.customWalls && this.customWalls.length) {
             const D = this.BALL_R * 2;
+            const _cScale = this.fieldSize / 392;
+            const _mapX = (x) => Math.round(this.fieldOffsetX + (x - 184) * _cScale);
+            const _mapY = (y) => Math.round(this.fieldOffsetY + (y - 102) * _cScale);
             this.customWalls.forEach(cw => {
+                const wx = _mapX(cw.x), wy = _mapY(cw.y);
                 if (cw.specialType === 'zone' || cw.specialType === 'silverZone') {
-                    this._createZone(cw.x, cw.y, D, D * 2, 'silver');
+                    this._createZone(wx, wy, D, D * 2, 'silver');
                 } else if (cw.specialType === 'goldZone') {
-                    this._createZone(cw.x, cw.y, D, D * 2, 'gold');
+                    this._createZone(wx, wy, D, D * 2, 'gold');
                 } else if (cw.specialType === 'income') {
-                    this.createWall(cw.x, cw.y, D, D, 'block', Phaser.Math.Between(1, 3));
+                    this.createWall(wx, wy, D, D, 'block', Phaser.Math.Between(1, 3));
                 } else if (cw.specialType === 'teleport') {
-                    const wall = this.createWall(cw.x, cw.y, D, D, 'block', 0);
+                    const wall = this.createWall(wx, wy, D, D, 'block', 0);
                     wall.incomeValue = 0;
                     wall.isEditorWall = true;
-                    wall.teleportTarget = (cw.targetX != null) ? { x: cw.targetX, y: cw.targetY } : null;
+                    wall.teleportTarget = (cw.targetX != null) ? { x: _mapX(cw.targetX), y: _mapY(cw.targetY) } : null;
                     this._applySpecialWallStyle(wall, 'teleport', null, null);
                 } else {
-                    const wall = this.createWall(cw.x, cw.y, D, D, 'block', 0);
+                    const wall = this.createWall(wx, wy, D, D, 'block', 0);
                     wall.incomeValue = 0;
                     wall.isEditorWall = true;
                     if (cw.specialType) this._applySpecialWallStyle(wall, cw.specialType, cw.color, cw.damage);
@@ -375,7 +385,7 @@ class MainScene extends Phaser.Scene {
             }
         } catch (e) {}
         // Плавное появление при старте
-        const _fadeIn = this.add.rectangle(380, 435, 760, 870, 0x000000, 1).setDepth(999);
+        const _fadeIn = this.add.rectangle(380, this._scH / 2, 760, this._scH, 0x000000, 1).setDepth(999);
         this.tweens.add({ targets: _fadeIn, alpha: 0, duration: 2400, ease: 'Power2', delay: 80, onComplete: () => _fadeIn.destroy() });
 
         // Хинт "купи меня" на уровне 1
@@ -674,7 +684,8 @@ class MainScene extends Phaser.Scene {
         ball.body.setCircle(R).setBounce(1, 1).setAllowGravity(false).setDrag(0);
         ball.body.customSeparateX = true;
         ball.body.customSeparateY = true;
-        ball.bounceSpeed = 200; ball.currentSpeed = 200;
+        const _spd = Math.round(300 * (this._fScale || 1));
+        ball.bounceSpeed = _spd; ball.currentSpeed = _spd;
         // ── PARTICLE TRAIL — edit config below ──────────────────
         // ball.trail = this.add.particles(0, 0, 'particle', {
         //     lifespan: 380,
@@ -854,7 +865,8 @@ class MainScene extends Phaser.Scene {
         // this.add.rectangle(380, 65, 760, 130, 0x0e1a27);
 
         // subtle dot grid + wallet bg — all baked into RT before destroy
-        const _icoX = 624, _valX = 644;
+        const _icoX = _isPhoneLayout ? 574 : 624, _valX = _isPhoneLayout ? 594 : 644;
+        const _statsFsz = _isPhoneLayout ? Math.round(16 * 1.5) : 16;
         const panelGfx = this.make.graphics({ add: false });
         panelGfx.fillStyle(0xffffff, 0.02);
         for (let gx = 30; gx < 760; gx += 48)
@@ -871,9 +883,11 @@ class MainScene extends Phaser.Scene {
         // ball icon as separate object so it can be hidden independently
         this._statsBallIcon = this.add.graphics().setDepth(5);
         this._statsBallIcon.fillStyle(this.lightTheme ? 0xee2211 : 0xf01cff, 1);
-        this._statsBallIcon.fillCircle(_icoX + 6, 124, 6);
+        const _statsDY = _isPhoneLayout ? 15 : 0;
+        const _statsR = _isPhoneLayout ? 9 : 6;
+        this._statsBallIcon.fillCircle(_icoX + _statsR, 124 + _statsDY, _statsR);
         this._statsBallIcon.lineStyle(1.5, this.lightTheme ? 0xff8844 : 0xf8ae0f, 1);
-        this._statsBallIcon.strokeCircle(_icoX + 6, 124, 6);
+        this._statsBallIcon.strokeCircle(_icoX + _statsR, 124 + _statsDY, _statsR);
 
         // bottom separator line
         // this.add.rectangle(380, 129, 760, 2, 0x2d55aa).setAlpha(0.7);
@@ -901,32 +915,35 @@ class MainScene extends Phaser.Scene {
         this._walletLabel = this.add.bitmapText(580, 58, this._gf, 'КОШЕЛЁК', 22).setOrigin(0.5, 0).setTint(0xffffff).setDepth(5);
 
         // mute button (right side, vertically centered in panel)
-        this.ballCountText = this.add.bitmapText(_valX, 116, this._gf, '1 шар', 16).setOrigin(0, 0).setDepth(5).setTint(0xcce4ff);
-        this._statsIcon1 = this.add.bitmapText(_icoX-6, 136, this._gf, '⚡', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
-        this.incomePerSecText = this.add.bitmapText(_valX, 136, this._gf, '0$/сек', 16).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
-        this._statsIcon2 = this.add.bitmapText(_icoX, 156, this._gf, '◆', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
-        this.passiveIncomeText = this.add.bitmapText(_valX, 156, this._gf, '0$/с', 16).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
+        this.ballCountText = this.add.bitmapText(_valX, 116 + _statsDY, this._gf, '1 шар', _statsFsz).setOrigin(0, 0).setDepth(5).setTint(0xcce4ff);
+        this._statsIcon1 = this.add.bitmapText(_icoX-6, 136 + _statsDY, this._gf, '⚡', _statsFsz).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
+        this.incomePerSecText = this.add.bitmapText(_valX, 136 + _statsDY, this._gf, '0$/сек', _statsFsz).setOrigin(0, 0).setDepth(5).setTint(0xffe666);
+        this._statsIcon2 = this.add.bitmapText(_icoX, 156 + _statsDY, this._gf, '◆', _statsFsz).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
+        this.passiveIncomeText = this.add.bitmapText(_valX, 156 + _statsDY, this._gf, '0$/с', _statsFsz).setOrigin(0, 0).setDepth(5).setTint(0xffdd44);
         this._fpsDom = document.createElement('div');
         Object.assign(this._fpsDom.style, { position:'fixed', top:'6px', left:'8px', color:'#ff4444', fontSize:'18px', fontFamily:'monospace', fontWeight:'bold', zIndex:'9999', pointerEvents:'none', textShadow:'0 0 3px #000' });
         this._fpsDom.textContent = 'FPS: --';
         document.body.appendChild(this._fpsDom);
         this.events.once('shutdown', () => this._fpsDom.remove());
-        this.muteBtn = this.add.text(748, 112, '🔊', { fontSize: '22px' })
+        this.muteBtn = this.add.text(_isPhoneLayout ? 718 : 748, _isPhoneLayout ? 85 : 112, '🔊', { fontSize: '22px' })
             .setOrigin(1, 0.5).setInteractive({ useHandCursor: true }).setDepth(10);
         this.muteBtn.on('pointerover', () => this.playSound('hover'));
         this.muteBtn.on('pointerdown', () => this.toggleMute());
         // Menu button
+        const _mW = _isPhoneLayout ? 110 : 55, _mH = _isPhoneLayout ? 52 : 26;
+        const _mCX = _isPhoneLayout ? 700 : 722, _mCY = _isPhoneLayout ? 85 : 85;
+        const _mX = _mCX - _mW / 2, _mY = _mCY - _mH / 2;
         const menuGfx = this.add.graphics().setDepth(10);
         const drawMenuBtn = (hover) => {
             menuGfx.clear();
             menuGfx.fillStyle(hover ? 0x1a2a3a : 0x0d1824, 0.9);
-            menuGfx.fillRoundedRect(695, 72, 55, 26, 6);
+            menuGfx.fillRoundedRect(_mX, _mY, _mW, _mH, 6);
             menuGfx.lineStyle(1.5, hover ? 0x88ccff : 0x336699, 1);
-            menuGfx.strokeRoundedRect(695, 72, 55, 26, 6);
+            menuGfx.strokeRoundedRect(_mX, _mY, _mW, _mH, 6);
         };
         drawMenuBtn(false);
-        this.add.bitmapText(722, 85, this._gf, 'МЕНЮ', 14).setOrigin(0.5).setDepth(11).setTint(0x88ccff);
-        const menuHit = this.add.rectangle(722, 85, 55, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
+        this.add.bitmapText(_mCX, _mCY, this._gf, 'МЕНЮ', _isPhoneLayout ? 28 : 14).setOrigin(0.5).setDepth(11).setTint(0x88ccff);
+        const menuHit = this.add.rectangle(_mCX, _mCY, _mW, _mH, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
         menuHit.on('pointerover', () => { drawMenuBtn(true); this.playSound('hover'); });
         menuHit.on('pointerout', () => drawMenuBtn(false));
         menuHit.on('pointerdown', () => {
@@ -937,20 +954,25 @@ class MainScene extends Phaser.Scene {
 
         // Dev buttons (always shown in dev build)
         if (true) {
+            if (!_isPhoneLayout) {
+            const _eW = 84, _eH = 26;
+            const _eCX = 712, _eCY = 113;
+            const _eX = _eCX - _eW / 2, _eY = _eCY - _eH / 2;
             const edBtnGfx = this.add.graphics().setDepth(10);
             const drawEdBtn = (hov) => {
                 edBtnGfx.clear();
                 edBtnGfx.fillStyle(hov ? 0x2a1a00 : 0x150d00, 0.97);
-                edBtnGfx.fillRoundedRect(670, 100, 84, 26, 7);
+                edBtnGfx.fillRoundedRect(_eX, _eY, _eW, _eH, 7);
                 edBtnGfx.lineStyle(2, hov ? 0xffcc44 : 0x996622, 1);
-                edBtnGfx.strokeRoundedRect(670, 100, 84, 26, 7);
+                edBtnGfx.strokeRoundedRect(_eX, _eY, _eW, _eH, 7);
             };
             drawEdBtn(false);
-            this.add.bitmapText(712, 113, this._gf, '✏ УРОВНИ', 14).setOrigin(0.5).setDepth(11).setTint(0xffcc44);
-            const edBtnHit = this.add.rectangle(712, 113, 84, 26, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
+            this.add.bitmapText(_eCX, _eCY, this._gf, '✏ УРОВНИ', 14).setOrigin(0.5).setDepth(11).setTint(0xffcc44);
+            const edBtnHit = this.add.rectangle(_eCX, _eCY, _eW, _eH, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
             edBtnHit.on('pointerover', () => drawEdBtn(true));
             edBtnHit.on('pointerout', () => drawEdBtn(false));
             edBtnHit.on('pointerdown', () => this.scene.start('LevelSelectScene'));
+            }
 
             // ── DEV spawn buttons ────────────────────────────────────
             const devBtnStyle = { _gf: this._gf, size: 13, tint: 0xffee44 };
@@ -971,13 +993,17 @@ class MainScene extends Phaser.Scene {
                 hit.on('pointerdown', onClick);
             };
 
-            makeDevBtn('+МЯCH', 628, 188, () => {
+            const _dbX = _isPhoneLayout ? 628 - 150 : 628;
+            const _dbY0 = _isPhoneLayout ? _mY : 188;
+            const _dbY1 = _isPhoneLayout ? _mY + 30 : 218;
+            const _dbY2 = _isPhoneLayout ? _mY + 60 : 248;
+            makeDevBtn('+МЯCH', _dbX, _dbY0, () => {
                 this.createBall();
             });
 
             const wallTypes = ['block', 'vertical', 'horizontal', 'tDown', 'tUp', 'tLeft', 'tRight'];
             let _devWallIdx = 0;
-            makeDevBtn('+СТЕНА', 628, 218, () => {
+            makeDevBtn('+СТЕНА', _dbX, _dbY1, () => {
                 const type = wallTypes[_devWallIdx % wallTypes.length];
                 _devWallIdx++;
                 const { w, h } = this.getWallDims(type);
@@ -987,7 +1013,7 @@ class MainScene extends Phaser.Scene {
                 const y = Phaser.Math.Between(cy - 100, cy + 100);
                 this.createWall(x, y, w, h, type, Phaser.Math.Between(1, 5));
             });
-            makeDevBtn('+100K', 628, 248, () => {
+            makeDevBtn('+100K', _dbX, _dbY2, () => {
                 this.money += 100000;
                 this.updateUI();
             });
@@ -1002,11 +1028,13 @@ class MainScene extends Phaser.Scene {
 
         // ── Upgrades strip (no label, no wrapper) ─────────────────
         const sharedBtnBg = this.make.graphics({ add: false });
-        this.buttonBall = this.createButton(167, this.btnY, '🟠', '+ 1 шарик', this.ballCost, () => this.buyBall(), sharedBtnBg);
-        this.buttonWallPack = this.createButton(380, this.btnY, '🧱', '+ 3 стены', this.wallPackCost, () => this.buyWallPack(), sharedBtnBg);
-        this.buttonIncome = this.createButton(593, this.btnY, '⚡', '+ доход стен', this.incomeCost, () => this.buyIncomeUpgrade(), sharedBtnBg);
-        this._upgradeBtnCenters = [{ cx: 167, cy: this.btnY }, { cx: 380, cy: this.btnY }, { cx: 593, cy: this.btnY }];
-        this._btnsBg = this.add.renderTexture(0, 0, 760, 870).setDepth(-1).setOrigin(0);
+        const _bsc = this._btnSc || 1;
+        const _bCX = this._btnCX || [167, 380, 593];
+        this.buttonBall = this.createButton(_bCX[0], this.btnY, '🟠', '+ 1 шарик', this.ballCost, () => this.buyBall(), sharedBtnBg, _bsc);
+        this.buttonWallPack = this.createButton(_bCX[1], this.btnY, '🧱', '+ 3 стены', this.wallPackCost, () => this.buyWallPack(), sharedBtnBg, _bsc);
+        this.buttonIncome = this.createButton(_bCX[2], this.btnY, '⚡', '+ доход стен', this.incomeCost, () => this.buyIncomeUpgrade(), sharedBtnBg, _bsc);
+        this._upgradeBtnCenters = [{ cx: _bCX[0], cy: this.btnY }, { cx: _bCX[1], cy: this.btnY }, { cx: _bCX[2], cy: this.btnY }];
+        this._btnsBg = this.add.renderTexture(0, 0, 760, this._scH).setDepth(-1).setOrigin(0);
         this._btnsBg.draw(sharedBtnBg, 0, 0);
         sharedBtnBg.destroy();
         this._scheduleUpgradeShimmer();
@@ -1031,6 +1059,21 @@ class MainScene extends Phaser.Scene {
         this._wallTooltipIps = this.add.bitmapText(8, 10, this._gf, '⚡ 0$/сек', 17).setDepth(29).setVisible(false).setTint(0x44ddff);
         this._wallTooltipTotal = this.add.bitmapText(8, 36, this._gf, '$ 0$ всего', 17).setDepth(29).setVisible(false).setTint(0xffdd44);
         this._wallTooltipTimer = null;
+
+        if (_isPhoneLayout) {
+            const _btnBottom = this.btnY + Math.round(72 * (this._btnSc || 1));
+            const _csTop = _btnBottom + 20;
+            const _csBottom = this._scH - 20;
+            const _csCY = Math.round((_csTop + _csBottom) / 2);
+            const _csH = _csBottom - _csTop;
+            const csGfx = this.add.graphics().setDepth(1);
+            csGfx.fillStyle(0x080e1a, 0.45);
+            csGfx.fillRoundedRect(30, _csTop, 700, _csH, 16);
+            csGfx.lineStyle(1.5, 0x1e3355, 0.5);
+            csGfx.strokeRoundedRect(30, _csTop, 700, _csH, 16);
+            this.add.bitmapText(380, _csCY - 20, this._gf, '? ? ? ? ?', 38).setOrigin(0.5, 0.5).setDepth(2).setAlpha(0.22).setTint(0x4466aa);
+            this.add.bitmapText(380, _csCY + 24, this._gf, 'ОТКРОЕТСЯ СКОРО', 24).setOrigin(0.5, 0.5).setDepth(2).setAlpha(0.28).setTint(0x6688cc);
+        }
     }
 
     buildSlotUIs() {
@@ -1049,11 +1092,13 @@ class MainScene extends Phaser.Scene {
                 if (idx < this.wallHand.length) this.playSound('hover');
                 if (this.wallHand[idx] && !this.draggingNewWall && !this._carryingFieldWall) {
                     const _hc = this.lightTheme ? 0xff88bb : 0x88aaff;
+                    const _hsc = 1.15;
+                    const _hr = Math.round(76 * _hsc), _hs = Math.round(152 * _hsc);
                     hoverGfx.clear();
                     hoverGfx.fillStyle(_hc, 0.09);
-                    hoverGfx.fillRoundedRect(cx - 76, cy - 76, 152, 152, 8);
+                    hoverGfx.fillRoundedRect(cx - _hr, cy - _hr, _hs, _hs, 9);
                     hoverGfx.lineStyle(2.5, _hc, 0.88);
-                    hoverGfx.strokeRoundedRect(cx - 76, cy - 76, 152, 152, 8);
+                    hoverGfx.strokeRoundedRect(cx - _hr, cy - _hr, _hs, _hs, 9);
                     this.tweens.killTweensOf(hoverGfx);
                     this.tweens.add({
                         targets: hoverGfx, alpha: 1, duration: 110, ease: 'Sine.easeOut',
@@ -1072,8 +1117,8 @@ class MainScene extends Phaser.Scene {
         this.updateSlotsUI();
     }
 
-    _drawTShapeSlot(gfx, cx, cy, type, incomeValue = null) {
-        const D = this.BALL_R * 2;
+    _drawTShapeSlot(gfx, cx, cy, type, incomeValue = null, sc = 1) {
+        const D = this.BALL_R * 2 * sc;
         const iv = incomeValue !== null ? incomeValue : 5;
         const outlineColor = this.lightTheme
             ? this._lerpColor(0xff99cc, 0xff3399, Math.min(1, (iv - 1) / 99))
@@ -1129,21 +1174,24 @@ class MainScene extends Phaser.Scene {
                 const item = this.wallHand[i];
                 slot.bg.setInteractive({ cursor: 'pointer' });
                 const { w, h } = this.getWallDims(item.type);
+                const _psc = 1.15;
                 if (item.type === 'silverZone' || item.type === 'goldZone') {
-                    const x0 = slot.cx - w / 2, y0 = slot.cy - h / 2;
+                    const sw = w * _psc, sh = h * _psc;
+                    const x0 = slot.cx - sw / 2, y0 = slot.cy - sh / 2;
                     const _mt = item.type === 'goldZone' ? 'gold' : 'silver';
-                    this._drawSlotWall(slot.gfx, x0, y0, w, h, false, null, _mt);
+                    this._drawSlotWall(slot.gfx, x0, y0, sw, sh, false, null, _mt);
                     const _tc = item.type === 'goldZone' ? 0xffee88 : 0xccccee;
                     if (slot.valTxt) slot.valTxt.setPosition(slot.cx, slot.cy + 4).setText('$/с').setTint(_tc);
                 } else if (['tDown', 'tUp', 'tLeft', 'tRight'].includes(item.type)) {
-                    this._drawTShapeSlot(slot.gfx, slot.cx, slot.cy, item.type, item.incomeValue);
+                    this._drawTShapeSlot(slot.gfx, slot.cx, slot.cy, item.type, item.incomeValue, _psc);
                     if (slot.valTxt) {
                         const bonusTxt = item.bonus ? `★${item.incomeValue}$` : `${item.incomeValue}$`;
                         slot.valTxt.setPosition(slot.cx, slot.cy).setText(bonusTxt).setTint(item.bonus ? 0xffe033 : 0xffffff);
                     }
                 } else {
-                    const x0 = slot.cx - w / 2, y0 = slot.cy - h / 2;
-                    this._drawSlotWall(slot.gfx, x0, y0, w, h, false, item.incomeValue);
+                    const sw = w * _psc, sh = h * _psc;
+                    const x0 = slot.cx - sw / 2, y0 = slot.cy - sh / 2;
+                    this._drawSlotWall(slot.gfx, x0, y0, sw, sh, false, item.incomeValue);
                     if (slot.valTxt) {
                         const bonusTxt = item.bonus ? `★${item.incomeValue}$` : `${item.incomeValue}$`;
                         slot.valTxt.setPosition(slot.cx, slot.cy).setText(bonusTxt).setTint(item.bonus ? 0xffe033 : 0xffffff);
@@ -1809,51 +1857,52 @@ class MainScene extends Phaser.Scene {
 
     _doUpgradeShimmer(btn) {
         const { cx, cy } = btn;
-        const bx = cx - 98, by = cy - 80, bw = 196, bh = 152;
+        const sc = this._btnSc || 1;
+        const bx = cx - 98*sc, by = cy - 80*sc, bw = 196*sc, bh = 152*sc;
         // bright fill flash
         const flash = this.add.graphics().setDepth(17);
         flash.fillStyle(0xffffff, 0.14);
-        flash.fillRoundedRect(bx, by, bw, bh, 8);
+        flash.fillRoundedRect(bx, by, bw, bh, 8*sc);
         this.tweens.add({ targets: flash, alpha: 0, duration: 380, ease: 'Power2', onComplete: () => flash.destroy() });
         // bright sweep strip
-        const shine = this.add.rectangle(cx, by + 10, bw - 8, 20, 0xffffff, 0.52).setDepth(19);
+        const shine = this.add.rectangle(cx, by + 10*sc, bw - 8*sc, 20*sc, 0xffffff, 0.52).setDepth(19);
         this.tweens.add({
-            targets: shine, y: by + bh - 10, alpha: { from: 0.52, to: 0 },
+            targets: shine, y: by + bh - 10*sc, alpha: { from: 0.52, to: 0 },
             duration: 420, ease: 'Sine.easeIn',
             onComplete: () => shine.destroy()
         });
         // bright border glow
         const glow = this.add.graphics().setDepth(18);
         glow.lineStyle(3, 0x88ffcc, 1);
-        glow.strokeRoundedRect(bx, by, bw, bh, 8);
+        glow.strokeRoundedRect(bx, by, bw, bh, 8*sc);
         this.tweens.add({ targets: glow, alpha: 0, duration: 480, ease: 'Power2', onComplete: () => glow.destroy() });
     }
 
-    createButton(cx, cy, emoji, label, initCost, callback, sharedBg) {
+    createButton(cx, cy, emoji, label, initCost, callback, sharedBg, sc = 1) {
         // block background — subtle dark panel for the whole column
         const blockBg = sharedBg || this.add.graphics();
         blockBg.fillStyle(this.lightTheme ? 0xfce8f0 : 0x0d2818, this.lightTheme ? 1 : 0.72);
-        blockBg.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+        blockBg.fillRoundedRect(cx - 98*sc, cy - 80*sc, 196*sc, 152*sc, 8*sc);
         blockBg.lineStyle(2, this.lightTheme ? 0xcc5588 : 0x1e5a38, this.lightTheme ? 0.7 : 0.4);
-        blockBg.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+        blockBg.strokeRoundedRect(cx - 98*sc, cy - 80*sc, 196*sc, 152*sc, 8*sc);
 
         // transparent hit area (on top of blockBg)
-        const bg = this.add.rectangle(cx, cy - 4, 196, 152, 0x000000, 0)
+        const bg = this.add.rectangle(cx, cy - 4*sc, 196*sc, 152*sc, 0x000000, 0)
             .setInteractive({ useHandCursor: true });
 
         // price panel
-        const px = cx - 80, py = cy - 78, pw = 160, ph = 20;
+        const px = cx - 80*sc, py = cy - 78*sc, pw = 160*sc, ph = 20*sc;
         const pnlGfx = sharedBg || this.add.graphics();
         pnlGfx.fillStyle(this.lightTheme ? 0xf4c8dc : 0x071609, 1);
-        pnlGfx.fillRoundedRect(px, py, pw, ph, 5);
+        pnlGfx.fillRoundedRect(px, py, pw, ph, 5*sc);
         pnlGfx.lineStyle(1, this.lightTheme ? 0xaa3366 : 0x1e6a3d, this.lightTheme ? 0.9 : 0.7);
-        pnlGfx.strokeRoundedRect(px, py, pw, ph, 5);
+        pnlGfx.strokeRoundedRect(px, py, pw, ph, 5*sc);
 
-        const ctTxt = this.add.bitmapText(cx, py + ph / 2, this._gf, `${initCost.toLocaleString()}$`, 23).setOrigin(0.5, 0.5).setTint(0xffdd88);
+        const ctTxt = this.add.bitmapText(cx, py + ph / 2, this._gf, `${initCost.toLocaleString()}$`, Math.round(23*sc)).setOrigin(0.5, 0.5).setTint(0xffdd88);
 
-        // illustration container — setScale(1.8)
-        const illY = cy - 5;
-        const illCon = this.add.container(cx, illY).setScale(1.8);
+        // illustration container — setScale(1.8 * sc)
+        const illY = cy - 5*sc;
+        const illCon = this.add.container(cx, illY).setScale(1.8 * sc);
         const gfx = this.add.graphics();
         if (emoji === '🟠') {
             const _bClr = this.lightTheme ? 0xee2211 : 0xf01cff;
@@ -1880,14 +1929,14 @@ class MainScene extends Phaser.Scene {
         }
 
         // description background
-        const descY = cy + 57;
+        const descY = cy + 57*sc;
         const descBg = sharedBg || this.add.graphics();
         descBg.fillStyle(this.lightTheme ? 0xf4c8dc : 0x0e2e16, 1);
-        descBg.fillRoundedRect(cx - 80, descY - 11, 160, 22, 5);
+        descBg.fillRoundedRect(cx - 80*sc, descY - 11*sc, 160*sc, 22*sc, 5*sc);
         descBg.lineStyle(1, this.lightTheme ? 0xaa3366 : 0x2a7a4d, this.lightTheme ? 0.9 : 0.7);
-        descBg.strokeRoundedRect(cx - 80, descY - 11, 160, 22, 5);
+        descBg.strokeRoundedRect(cx - 80*sc, descY - 11*sc, 160*sc, 22*sc, 5*sc);
 
-        const lbTxt = this.add.bitmapText(cx, descY, this._gf, label, 21).setOrigin(0.5, 0.5).setTint(0xffffff);
+        const lbTxt = this.add.bitmapText(cx, descY, this._gf, label, Math.round(21*sc)).setOrigin(0.5, 0.5).setTint(0xffffff);
 
         // hover highlight — drawn on demand so it's blank when revealed by tutorial
         const hoverGfx = this.add.graphics().setAlpha(0);
@@ -1897,9 +1946,9 @@ class MainScene extends Phaser.Scene {
             this.playSound('hover');
             hoverGfx.clear();
             hoverGfx.fillStyle(0xffffff, 0.09);
-            hoverGfx.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+            hoverGfx.fillRoundedRect(cx - 98*sc, cy - 80*sc, 196*sc, 152*sc, 8*sc);
             hoverGfx.lineStyle(2, 0x44ff88, 0.9);
-            hoverGfx.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+            hoverGfx.strokeRoundedRect(cx - 98*sc, cy - 80*sc, 196*sc, 152*sc, 8*sc);
             hoverGfx.setAlpha(1);
         });
         bg.on('pointerout', () => { hoverGfx.setAlpha(0); hoverGfx.clear(); });
@@ -2037,6 +2086,56 @@ class MainScene extends Phaser.Scene {
             this._physicsSpeedMult = 1;
             this.updateUI();
         });
+
+        if (_isPhoneLayout) {
+            this.input.on('pointerup', pointer => {
+                if (this._carryingFieldWall) return;
+                if (!this.draggingNewWall || !this.wallPreview) return;
+                if (_inField(pointer.x, pointer.y)) {
+                    const { w, h } = this.getWallDims(this.draggingWallType);
+                    const cx = Phaser.Math.Clamp(pointer.x, this.fieldOffsetX + w / 2, this.fieldOffsetX + this.fieldSize - w / 2);
+                    const cy = Phaser.Math.Clamp(pointer.y, this.fieldOffsetY + h / 2, this.fieldOffsetY + this.fieldSize - h / 2);
+                    const chk = this.checkPlacementValid(cx, cy, w, h, this.draggingWallType);
+                    if (!chk.ok) { this.showError(chk.reason); }
+                    else { this.placeWall(pointer.x, pointer.y); }
+                } else {
+                    const slotXs = [167, 380, 593];
+                    const mergeSlot = slotXs.findIndex((sx, i) =>
+                        Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
+                        this.wallHand[i] && this.wallHand[i].type === this.draggingWallType && i !== this.draggingSlotIndex
+                    );
+                    if (mergeSlot !== -1) {
+                        this.wallHand[mergeSlot].incomeValue += this.draggingIncomeValue;
+                        this._draggedSlotItem = null;
+                        this.playSound('merge');
+                        this.time.delayedCall(60, () => { this._playSpawnFlash(slotXs[mergeSlot], this.slotY, 0.42); });
+                        this.updateSlotsUI();
+                    } else {
+                        const targetSlot = slotXs.findIndex((sx, i) =>
+                            Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
+                            !this.wallHand[i] && i !== this.draggingSlotIndex
+                        );
+                        if (targetSlot !== -1) {
+                            this.wallHand[targetSlot] = { type: this.draggingWallType, incomeValue: this.draggingIncomeValue };
+                            this.updateSlotsUI();
+                            this.playSound('place');
+                        } else {
+                            this.wallHand[this.draggingSlotIndex] = this._draggedSlotItem;
+                            this._draggedSlotItem = null;
+                            this.updateSlotsUI();
+                        }
+                    }
+                }
+                if (this.wallPreview) { this.wallPreview.destroy(); this.wallPreview = null; }
+                if (this._dragIncomeText) { this._dragIncomeText.destroy(); this._dragIncomeText = null; }
+                if (this._slotDragOutlineGfx) { this._slotDragOutlineGfx.destroy(); this._slotDragOutlineGfx = null; }
+                this._drawSlotDragOutline = null;
+                if (this._slotDragParticles) { this._slotDragParticles.stop(); this.time.delayedCall(600, () => { if (this._slotDragParticles && this._slotDragParticles.active) this._slotDragParticles.destroy(); this._slotDragParticles = null; }); }
+                this.draggingNewWall = false;
+                this._physicsSpeedMult = 1;
+                this.updateUI();
+            });
+        }
 
         this.input.keyboard.on('keydown-SPACE', () => {
             const hist = this._fpsHist || {};
@@ -2399,10 +2498,11 @@ class MainScene extends Phaser.Scene {
     // ──── Purchases ────
 
     _flashPurchase(cx, cy) {
+        const sc = this._btnSc || 1;
         // bright block fill flash
         const flash = this.add.graphics().setDepth(21);
         flash.fillStyle(0xccffdd, 0.78);
-        flash.fillRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+        flash.fillRoundedRect(cx - 98*sc, cy - 80*sc, 196*sc, 152*sc, 8*sc);
         this.tweens.add({ targets: flash, alpha: 0, duration: 420, ease: 'Power2', onComplete: () => flash.destroy() });
 
         // 3 rings expanding at different speeds
@@ -2413,7 +2513,7 @@ class MainScene extends Phaser.Scene {
         ].forEach(({ scale, dur, color, lw }) => {
             const ring = this.add.graphics().setDepth(22);
             ring.lineStyle(lw, color, 1);
-            ring.strokeRoundedRect(cx - 98, cy - 80, 196, 152, 8);
+            ring.strokeRoundedRect(cx - 98*sc, cy - 80*sc, 196*sc, 152*sc, 8*sc);
             this.tweens.add({ targets: ring, scaleX: scale, scaleY: scale, alpha: 0, duration: dur, ease: 'Power2', onComplete: () => ring.destroy() });
         });
 
@@ -2447,8 +2547,9 @@ class MainScene extends Phaser.Scene {
         const ballCount = this.ballsGroup.getLength();
         const upgradable = this.ballsGroup.getChildren().filter(b => !b.multiplier || b.multiplier < 3);
         const maxReached = ballCount >= 12 && upgradable.length === 0;
-        if (maxReached) { this._showNotEnoughMoney(167); return; }
-        if (this.money < this.ballCost) { this._showNotEnoughMoney(167); return; }
+        const _cx0 = (this._btnCX || [167])[0];
+        if (maxReached) { this._showNotEnoughMoney(_cx0); return; }
+        if (this.money < this.ballCost) { this._showNotEnoughMoney(_cx0); return; }
         this.money -= this.ballCost;
         this.buttonBall.level = (this.buttonBall.level || 0) + 1;
         const _bt = [20, 200, 800, 2000, 4000, 8000, 12000, 16000, 24000, 28000, 32000];
@@ -2459,8 +2560,8 @@ class MainScene extends Phaser.Scene {
         } else {
             this._upgradeBall(Phaser.Utils.Array.GetRandom(upgradable));
         }
-        this._flashPurchase(167, this.btnY);
-        this.time.delayedCall(80, () => { this._playSpawnFlash(167, this.btnY, 0.85); });
+        this._flashPurchase(_cx0, this.btnY);
+        this.time.delayedCall(80, () => { this._playSpawnFlash(_cx0, this.btnY, 0.85); });
         this._hideUpgradeNudge();
         this.updateUI();
     }
@@ -2486,7 +2587,7 @@ class MainScene extends Phaser.Scene {
     }
 
     buyWallPack() {
-        if (this.money < this.wallPackCost) { this._showNotEnoughMoney(380); return; }
+        if (this.money < this.wallPackCost) { this._showNotEnoughMoney((this._btnCX || [167, 380])[1]); return; }
         this.money -= this.wallPackCost; this.playSound('buy');
         const types = ['horizontal', 'vertical', 'block', 'horizontal', 'vertical', 'block', 'block', 'block', 'block', 'horizontal', 'vertical', 'tDown', 'tRight'];
         this.wallHand = [
@@ -2510,14 +2611,14 @@ class MainScene extends Phaser.Scene {
         this.buttonWallPack.level = (this.buttonWallPack.level || 0) + 1;
         const _wt = [20, 120, 240, 400, 800, 1500];
         this.wallPackCost = _wt[Math.min(this.buttonWallPack.level, _wt.length - 1)];
-        this._flashPurchase(380, this.btnY);
-        this.time.delayedCall(80, () => { this._playSpawnFlash(380, this.btnY, 0.85); });
+        this._flashPurchase((this._btnCX || [167, 380])[1], this.btnY);
+        this.time.delayedCall(80, () => { this._playSpawnFlash((this._btnCX || [167, 380])[1], this.btnY, 0.85); });
         this._hideUpgradeNudge();
         this.updateSlotsUI(); this.updateUI();
     }
 
     buyIncomeUpgrade() {
-        if (this.money < this.incomeCost) { this._showNotEnoughMoney(593); return; }
+        if (this.money < this.incomeCost) { this._showNotEnoughMoney((this._btnCX || [167, 380, 593])[2]); return; }
         this.money -= this.incomeCost; this.playSound('buy');
         const _playAnim = !this._incomeUpgradeAnimPending;
         if (_playAnim) {
@@ -2539,8 +2640,8 @@ class MainScene extends Phaser.Scene {
         this.buttonIncome.level = (this.buttonIncome.level || 0) + 1;
         const _it = [50, 150, 350, 500, 1000, 2000, 3000, 5000, 10000];
         this.incomeCost = _it[Math.min(this.buttonIncome.level, _it.length - 1)];
-        this._flashPurchase(593, this.btnY);
-        this.time.delayedCall(80, () => { this._playSpawnFlash(593, this.btnY, 0.85); });
+        this._flashPurchase((this._btnCX || [167, 380, 593])[2], this.btnY);
+        this.time.delayedCall(80, () => { this._playSpawnFlash((this._btnCX || [167, 380, 593])[2], this.btnY, 0.85); });
         this._hideUpgradeNudge();
         this.updateSlotsUI(); this.updateUI();
         this.wallSlots.forEach((slot, i) => {
@@ -2623,7 +2724,7 @@ class MainScene extends Phaser.Scene {
     }
 
     _showMechanicModal(data, onClose) {
-        const W = 760, H = 870;
+        const W = 760, H = this._scH;
         const MW = 320, MH = 252, MX = W / 2, MY = H / 2;
         const objs = [];
         const cleanup = () => objs.forEach(o => { if (o && o.active) o.destroy(); });
@@ -3505,7 +3606,7 @@ class MainScene extends Phaser.Scene {
         try { localStorage.removeItem('bumper_save_normal'); } catch (e) { }
         this.playSound('win');
 
-        const overlay = this.add.rectangle(380, 435, 760, 870, 0x000000, 0).setDepth(30);
+        const overlay = this.add.rectangle(380, this._scH / 2, 760, this._scH, 0x000000, 0).setDepth(30);
         this.tweens.add({ targets: overlay, alpha: 0.62, duration: 700, ease: 'Power2' });
 
         const lvl = this.registry.get('level') || 1;
@@ -4898,15 +4999,19 @@ class LevelSelectScene extends Phaser.Scene {
 }
 
 const _isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+const _mobScrW = Math.min(window.screen.width, window.screen.height);
+const _mobScrH = Math.max(window.screen.width, window.screen.height);
+const _isPhoneLayout = _mobScrW < 600;
+const _mobileScH = _isPhoneLayout ? Math.round(760 * _mobScrH / _mobScrW) : 870;
 const config = {
     type: Phaser.WEBGL,
-    width: 760, height: 870,
+    width: 760, height: _mobileScH,
     backgroundColor: '#0b1520',
     parent: 'game-container',
     scale: {
         mode: Phaser.Scale.FIT,
         width: 760,
-        height: 870,
+        height: _mobileScH,
     },
     render: {
         antialias: false,
