@@ -335,7 +335,7 @@ class MainScene extends Phaser.Scene {
                     _tutLaunched = true;
                     this.scene.launch('TutorialScene');
                 };
-                this.time.delayedCall(500, _launch);
+                this.time.delayedCall(50, _launch);
                 const _check = () => {
                     if (_tutLaunched || !this.scene.isActive()) return;
                     if ((this.totalEarned || 0) >= 500) { _launch(); return; }
@@ -684,7 +684,7 @@ class MainScene extends Phaser.Scene {
         ball.body.setCircle(R).setBounce(1, 1).setAllowGravity(false).setDrag(0);
         ball.body.customSeparateX = true;
         ball.body.customSeparateY = true;
-        const _spd = Math.round(300 * (this._fScale || 1));
+        const _spd = Math.round(270 * (this._fScale || 1));
         ball.bounceSpeed = _spd; ball.currentSpeed = _spd;
         // ── PARTICLE TRAIL — edit config below ──────────────────
         // ball.trail = this.add.particles(0, 0, 'particle', {
@@ -934,6 +934,7 @@ class MainScene extends Phaser.Scene {
         const _mCX = _isPhoneLayout ? 700 : 722, _mCY = _isPhoneLayout ? 85 : 85;
         const _mX = _mCX - _mW / 2, _mY = _mCY - _mH / 2;
         const menuGfx = this.add.graphics().setDepth(10);
+        this._menuGfx = menuGfx;
         const drawMenuBtn = (hover) => {
             menuGfx.clear();
             menuGfx.fillStyle(hover ? 0x1a2a3a : 0x0d1824, 0.9);
@@ -942,8 +943,9 @@ class MainScene extends Phaser.Scene {
             menuGfx.strokeRoundedRect(_mX, _mY, _mW, _mH, 6);
         };
         drawMenuBtn(false);
-        this.add.bitmapText(_mCX, _mCY, this._gf, 'МЕНЮ', _isPhoneLayout ? 28 : 14).setOrigin(0.5).setDepth(11).setTint(0x88ccff);
+        this._menuTxt = this.add.bitmapText(_mCX, _mCY, this._gf, 'МЕНЮ', _isPhoneLayout ? 28 : 14).setOrigin(0.5).setDepth(11).setTint(0x88ccff);
         const menuHit = this.add.rectangle(_mCX, _mCY, _mW, _mH, 0, 0).setInteractive({ useHandCursor: true }).setDepth(12);
+        this._menuHit = menuHit;
         menuHit.on('pointerover', () => { drawMenuBtn(true); this.playSound('hover'); });
         menuHit.on('pointerout', () => drawMenuBtn(false));
         menuHit.on('pointerdown', () => {
@@ -1077,7 +1079,7 @@ class MainScene extends Phaser.Scene {
     }
 
     buildSlotUIs() {
-        const slotX = [167, 380, 593];
+        const slotX = [160, 380, 600];
         for (let i = 0; i < 3; i++) {
             const cx = slotX[i], cy = this.slotY;
             // transparent hit area — large enough for vertical wall (50×150)
@@ -1725,7 +1727,7 @@ class MainScene extends Phaser.Scene {
 
     _showWallHint() {
         this._wallHintActive = true;
-        const slotX = [167, 380, 593];
+        const slotX = [160, 380, 600];
         const sy = this.slotY || 605;
         const validX = slotX.filter((x, i) => this.wallHand && this.wallHand[i]);
         if (!validX.length) { this._wallHintActive = false; return; }
@@ -1993,7 +1995,7 @@ class MainScene extends Phaser.Scene {
                 } else {
                     wp.clearTint ? wp.clearTint() : null;
                     // Show merge hint when hovering over same-type hand slot
-                    const _msi = [167, 380, 593].findIndex((sx, i) =>
+                    const _msi = [160, 380, 600].findIndex((sx, i) =>
                         Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
                         this.wallHand[i] && this.wallHand[i].type === this.draggingWallType
                     );
@@ -2024,7 +2026,7 @@ class MainScene extends Phaser.Scene {
                     else { if (wall._drawOutline) wall._drawOutline(pointer.x, pointer.y, 0xff4444, 1); }
                 } else {
                     // Show merge hint when hovering over same-type hand slot
-                    const _fmsi = [167, 380, 593].findIndex((sx, i) =>
+                    const _fmsi = [160, 380, 600].findIndex((sx, i) =>
                         Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
                         this.wallHand[i] && this.wallHand[i].type === wall.wallType
                     );
@@ -2049,7 +2051,7 @@ class MainScene extends Phaser.Scene {
                 if (!chk.ok) { this.showError(chk.reason); return; }
                 this.placeWall(pointer.x, pointer.y);
             } else {
-                const slotXs = [167, 380, 593];
+                const slotXs = [160, 380, 600];
                 // Hand-to-hand merge: same type in an occupied slot
                 const mergeSlot = slotXs.findIndex((sx, i) =>
                     Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
@@ -2089,7 +2091,7 @@ class MainScene extends Phaser.Scene {
 
         if (_isPhoneLayout) {
             this.input.on('pointerup', pointer => {
-                if (this._carryingFieldWall) return;
+                if (this._carryingFieldWall) { this._placeCarriedFieldWall(pointer); return; }
                 if (!this.draggingNewWall || !this.wallPreview) return;
                 if (_inField(pointer.x, pointer.y)) {
                     const { w, h } = this.getWallDims(this.draggingWallType);
@@ -2099,7 +2101,7 @@ class MainScene extends Phaser.Scene {
                     if (!chk.ok) { this.showError(chk.reason); }
                     else { this.placeWall(pointer.x, pointer.y); }
                 } else {
-                    const slotXs = [167, 380, 593];
+                    const slotXs = [160, 380, 600];
                     const mergeSlot = slotXs.findIndex((sx, i) =>
                         Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
                         this.wallHand[i] && this.wallHand[i].type === this.draggingWallType && i !== this.draggingSlotIndex
@@ -2372,7 +2374,7 @@ class MainScene extends Phaser.Scene {
             py >= this.fieldOffsetY && py <= this.fieldOffsetY + this.fieldSize;
 
         if (!inField(pointer.x, pointer.y)) {
-            const slotXs = [167, 380, 593];
+            const slotXs = [160, 380, 600];
             // Field-to-hand merge: same type in an occupied slot
             const mergeSlot = slotXs.findIndex((sx, i) =>
                 Math.abs(pointer.x - sx) < 80 && Math.abs(pointer.y - this.slotY) < 80 &&
@@ -2599,7 +2601,7 @@ class MainScene extends Phaser.Scene {
         if (bonusCount > 0) {
             this._showBonusMessage(bonusCount);
             this.playSound('bonus');
-            const slotXPositions = [167, 380, 593];
+            const slotXPositions = [160, 380, 600];
             this.wallHand.forEach((item, i) => {
                 if (item && item.bonus) {
                     this.time.delayedCall(i * 140, () => {
@@ -3694,13 +3696,22 @@ class TutorialScene extends Phaser.Scene {
     preload() { _preloadGameFont(this); }
 
     create() {
-        const W = 760, H = 870;
+        const W = 760, H = _isPhoneLayout ? _mobileScH : 870;
+        this._H = H;
         this._gf = _initGameFont(this);
         this._step = 0;
         this._startUpgradeLvl = 0;
         this._arrowOff = 0;
 
         this._blocker = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0).setDepth(99).setInteractive();
+
+        // Скрываем кнопку МЕНЮ на время туториала
+        const _msMenu = this.scene.get('MainScene');
+        if (_msMenu) {
+            if (_msMenu._menuGfx) _msMenu._menuGfx.setAlpha(0);
+            if (_msMenu._menuTxt) _msMenu._menuTxt.setAlpha(0);
+            if (_msMenu._menuHit) _msMenu._menuHit.disableInteractive();
+        }
 
         // Скрываем UI-группы MainScene — будем открывать пошагово
         this._uiGroups = {};
@@ -3757,6 +3768,36 @@ class TutorialScene extends Phaser.Scene {
                 interactive: 'trap_demo'
             }
         ];
+
+        // Адаптируем позиции карточек под телефон
+        if (_isPhoneLayout) {
+            const _msr = this.scene.get('MainScene');
+            const _fOY = (_msr && _msr.fieldOffsetY) || 205;
+            const _fSz = (_msr && _msr.fieldSize) || 684;
+            const _fBot = _fOY + _fSz;
+            const _btnYr = (_msr && _msr.btnY) || Math.round(_fBot + 315 + H * 0.1);
+            const _slYr = (_msr && _msr.slotY) || Math.round(_fBot + 120 + H * 0.05);
+            // Шаг 0: поле
+            this._steps[0].rect = { x: 7, y: _fOY - 10, w: 746, h: _fSz + 20 };
+            this._steps[0].bubX = 380;
+            this._steps[0].bubY = _fBot - 220;
+            // Шаг 1: кошелёк — позиция карточки ниже чтобы не перекрывать
+            this._steps[1].bubX = 270;
+            this._steps[1].bubY = 120;
+            // Шаг 3: апгрейды
+            const _sc = (_msr && _msr._btnSc) || 1.25;
+            this._steps[3].rect = { x: 30, y: Math.round(_btnYr - 100*_sc), w: 700, h: Math.round(210*_sc) };
+            this._steps[3].bubX = 380;
+            this._steps[3].bubY = Math.round(_slYr + 70);
+            // Шаг 4: цель уровня — карточка ниже прогресс-бара
+            this._steps[4].bubX = 205;
+            this._steps[4].bubY = _fOY + 10;
+            //секрет профи
+            this._steps[5].bubX = 900;
+            this._steps[5].bubY = _fOY + 240;
+
+
+        }
 
         this._spotGfx  = this.add.graphics().setDepth(101);
         this._arrowGfx = this.add.graphics().setDepth(101.5);
@@ -3823,7 +3864,7 @@ class TutorialScene extends Phaser.Scene {
     }
 
     _showStep(idx) {
-        const W = 760, H = 870;
+        const W = 760, H = this._H || 870;
         const s = this._steps[idx];
         const _bubObjs = [this._spotGfx, this._bubbleBg, this._titleTxt, this._bodyTxt, this._btnGfx, this._btnTxt];
         _bubObjs.forEach(o => { if (o) { this.tweens.killTweensOf(o); o.setAlpha(0); } });
@@ -3839,7 +3880,7 @@ class TutorialScene extends Phaser.Scene {
             // Пузырь с текстом слева
             const BW = 240, lineCount = (s.text || '').split('\n').length;
             const BH = 52 + lineCount * 26 + 56;
-            const bx = 20, by = 160;
+            const bx = 220, by = 160;
             this._bubbleBg.clear();
             this._bubbleBg.fillStyle(0x060c1a, 0.97);
             this._bubbleBg.fillRoundedRect(bx, by, BW, BH, 10);
@@ -4007,7 +4048,7 @@ class TutorialScene extends Phaser.Scene {
 
         if (s.interactive) {
             this._blocker.disableInteractive();
-            this._setTimeScale(s.interactive === 'place_wall' ? 0.5 : 1);
+            this._setTimeScale(1);
         } else {
             this._blocker.setInteractive();
             this._setTimeScale(1);
@@ -4113,6 +4154,12 @@ class TutorialScene extends Phaser.Scene {
         this._uiGroups = {};
         if (ms && ms._walletLabel) { this.tweens.killTweensOf(ms._walletLabel); ms._walletLabel.setScale(1); }
         this._setTimeScale(1);
+        // Restore МЕНЮ button
+        if (ms) {
+            if (ms._menuGfx) ms._menuGfx.setAlpha(1);
+            if (ms._menuTxt) ms._menuTxt.setAlpha(1);
+            if (ms._menuHit) ms._menuHit.setInteractive({ useHandCursor: true });
+        }
         try { localStorage.setItem('tutorial_seen', '1'); } catch (e) {}
         const mainScene = ms;
         if (mainScene) {
@@ -4998,6 +5045,7 @@ class LevelSelectScene extends Phaser.Scene {
     }
 }
 
+try { localStorage.clear(); } catch (e) {}
 const _isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 const _mobScrW = Math.min(window.screen.width, window.screen.height);
 const _mobScrH = Math.max(window.screen.width, window.screen.height);
