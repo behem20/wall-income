@@ -4569,7 +4569,8 @@ class StartScene extends Phaser.Scene {
         const _isMob = window.innerWidth < 600;
         const bw = 560, bh = 110, bx = W / 2 - bw / 2;
         // На телефоне 3 кнопки (2 активных + заглушка) центрируем по экрану
-        let cy = _isMob ? H / 2 - (3 * bh + 2 * 12) / 2 + bh / 2 + 600 : 1050;
+        const _gameH = this.scale.height;
+        let cy = _isMob ? _gameH / 2 - (3 * bh + 2 * 12) / 2 + bh / 2 + (_gameH - 870) * 0.5 + 500 : Math.round(_gameH * 0.65);
 
         btnDefs.forEach(def => {
             const by = cy;
